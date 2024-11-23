@@ -89,4 +89,122 @@ class DBHelper {
       );
     });
   }
+
+  Future<void> importETLData(String etlDbPath) async {
+    // Open the ETL database
+    final etlDb = await openDatabase(etlDbPath);
+
+    // Get all expense tables dynamically
+    final List<Map<String, dynamic>> tables = await etlDb.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'expenses%';"
+    );
+
+    if (tables.isEmpty) {
+      print('No expense tables found in ETL database.');
+      return;
+    }
+
+    // Open the app database
+    final appDb = await database;
+
+    for (var table in tables) {
+      final tableName = table['name'];
+      print('Importing data from $tableName');
+
+      // Query data from the current ETL table
+      final List<Map<String, dynamic>> etlData = await etlDb.query(tableName);
+      print('Fetched records from $tableName: $etlData');
+
+      // Insert data into the app database
+      for (var record in etlData) {
+        final appRecord = {
+          'id': record['id'],  // Primary key (can be null to auto-generate)
+          'name': record['name'],
+          'amount': record['amount']?.toDouble(),
+          'spend_date': record['spend_date'],
+          'created_at': record['created_at'],
+          'updated_at': record['updated_at'],
+          'user_id': record['user_id'],
+          'category': record['category'] ?? 'Uncategorized',
+        };
+
+        // Insert into the app database
+        try {
+          await appDb.insert('expenses', appRecord, conflictAlgorithm: ConflictAlgorithm.replace);
+        } catch (e) {
+          print('Error inserting record: $e');
+        }
+      }
+    }
+
+    // Close the ETL database
+    await etlDb.close();
+
+    print('Data import completed.');
+  }
+
+  Future<void> importETLDataForceJuli(String etlDbPath) async {
+      // Open the ETL database
+      final etlDb = await openDatabase(etlDbPath);
+
+      // Query data from the ETL table
+      final List<Map<String, dynamic>> etlData = await etlDb.query('expenses_juni_juli');
+
+      // Open the app database
+      final appDb = await database;
+
+      // Insert data into the app database
+      for (var record in etlData) {
+        // Transform the data to fit the app database schema
+        final appRecord = {
+          'id': record['id'],
+          'name': record['name'],
+          'amount': record['amount']?.toDouble(), // Convert to REAL (double)
+          'spend_date': record['spend_date'],    // Ensure date format consistency
+          'created_at': record['created_at'],
+          'updated_at': record['updated_at'],
+          'user_id': record['user_id'],
+          'category': record['category'] ?? 'Uncategorized',
+        };
+
+        // Insert into the app database
+        await appDb.insert('expenses', appRecord, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+
+      // Close the ETL database
+      await etlDb.close();
+    }
+
+  Future<void> importETLDataForceSeptember(String etlDbPath) async {
+      // Open the ETL database
+      final etlDb = await openDatabase(etlDbPath);
+
+      // Query data from the ETL table
+      final List<Map<String, dynamic>> etlData = await etlDb.query('expenses_agustus_september');
+
+      // Open the app database
+      final appDb = await database;
+
+      // Insert data into the app database
+      for (var record in etlData) {
+        // Transform the data to fit the app database schema
+        final appRecord = {
+          'id': record['id'],
+          'name': record['name'],
+          'amount': record['amount']?.toDouble(), // Convert to REAL (double)
+          'spend_date': record['spend_date'],    // Ensure date format consistency
+          'created_at': record['created_at'],
+          'updated_at': record['updated_at'],
+          'user_id': record['user_id'],
+          'category': record['category'] ?? 'Uncategorized',
+        };
+
+        // Insert into the app database
+        await appDb.insert('expenses', appRecord, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+
+      // Close the ETL database
+      await etlDb.close();
+    }
+
 }

@@ -88,6 +88,7 @@ flutter:
   assets:
     - assets/images/logo.png
     - assets/images/ic_launcher.png
+    - assets/databases/expense_etl.db
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
