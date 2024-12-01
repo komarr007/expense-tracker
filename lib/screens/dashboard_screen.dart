@@ -13,6 +13,8 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   List<Expense> _expenses = [];
+  String _selectedMonth = '';
+  List<String> _availableMonths = [];
   double _monthlyTotalExpense = 0.0;
   Expense? _biggestExpense;
   Map<String, double> _categoryTotals = {};
@@ -29,17 +31,79 @@ class _DashboardScreenState extends State<DashboardScreen> {
     List<Expense> expenses = await DBHelper().getExpenses();
     setState(() {
       _expenses = expenses;
+      _availableMonths = _getAvailableMonths();
+      _selectedMonth = _availableMonths.isNotEmpty ? _availableMonths.first : '';
+      _calculateCategoryTotalsForMonth(_selectedMonth);
       _calculateMonthlyTotalExpense();
       _calculateBiggestExpense();
       _calculateCategoryTotals();
     });
   }
 
+  List<String> _getAvailableMonths() {
+    final uniqueMonths = _expenses
+        .map((expense) => DateFormat('MMM yyyy').format(expense.spend_date))
+        .toSet()
+        .toList();
+    uniqueMonths.sort((a, b) => DateFormat('MMM yyyy').parse(b).compareTo(DateFormat('MMM yyyy').parse(a)));
+    return uniqueMonths;
+  }
+
+  void _calculateCategoryTotalsForMonth(String selectedMonth) {
+    _categoryTotals.clear();
+    if (selectedMonth.isEmpty) return;
+
+    final monthExpenses = _expenses.where((expense) {
+      String expenseMonth = DateFormat('MMM yyyy').format(expense.spend_date);
+      return expenseMonth == selectedMonth;
+    }).toList();
+
+    for (var expense in monthExpenses) {
+      _categoryTotals.update(
+        expense.category,
+        (value) => value + expense.amount,
+        ifAbsent: () => expense.amount,
+      );
+    }
+  }
+
+  Color _getCategoryColor(String category) {
+    switch (category) {
+      case 'jajan':
+        return Colors.green;
+      case 'makan':
+        return Colors.purple;
+      case 'others':
+        return Colors.orange;
+      case 'savings':
+        return Colors.blue;
+      case 'mandatory share income':
+        return Colors.grey;
+      case 'investment':
+        return Colors.brown;
+      case 'tarik tunai':
+        return Colors.grey.shade800;
+      case 'health':
+        return Colors.orange.shade100;
+      default:
+        return Colors.black;
+    }
+  }
+
   void _calculateMonthlyTotalExpense() {
-    DateTime now = DateTime.now();
-    DateTime startOfMonth = DateTime(now.year, now.month, 1);
+    if (_expenses.isEmpty) {
+      _monthlyTotalExpense = 0.0;
+      return;
+    }
+
+    DateTime mostRecentDate = _expenses.map((e) => e.spend_date).reduce((a, b) => a.isAfter(b) ? a : b);
+    DateTime startOfRecentMonth = DateTime(mostRecentDate.year, mostRecentDate.month, 1);
+    DateTime endOfRecentMonth = DateTime(mostRecentDate.year, mostRecentDate.month + 1, 0);
+
     _monthlyTotalExpense = _expenses
-        .where((expense) => expense.spend_date.isAfter(startOfMonth))
+        .where((expense) =>
+            expense.spend_date.isAfter(startOfRecentMonth.subtract(Duration(days: 1))) &&
+            expense.spend_date.isBefore(endOfRecentMonth.add(Duration(days: 1))))
         .fold(0.0, (sum, expense) => sum + expense.amount);
   }
 
@@ -89,7 +153,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
-          _buildSummaryCard('Total Expenses', currencyFormatter.format(_monthlyTotalExpense), Colors.white),
+          _buildSummaryCard('Total Expenses (Recent Month)', currencyFormatter.format(_monthlyTotalExpense), Colors.white),
           _buildSummaryCard(
             'Biggest Expense',
             _biggestExpense != null
@@ -97,7 +161,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 : 'No expenses',
             Colors.white,
           ),
-          _buildSummaryCard('Number of Expenses', '${_expenses.length}', Colors.white),
+          _buildSummaryCard('Number of Expenses (All Month)', '${_expenses.length}', Colors.white),
         ],
       ),
     );
@@ -131,38 +195,88 @@ class _DashboardScreenState extends State<DashboardScreen> {
         title: '${percentage.toStringAsFixed(1)}%',
         color: _getCategoryColor(entry.key),
         radius: 50,
+        showTitle: true,
+        titleStyle: TextStyle(fontSize: 12, color: Colors.white),
       );
     }).toList();
 
-    return Container(
-      height: 200,
-      padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: Colors.blueGrey[800],
-        borderRadius: BorderRadius.circular(8.0),
-      ),
-      child: PieChart(
-        PieChartData(
-          sections: sections,
-          sectionsSpace: 2,
-          centerSpaceRadius: 30,
-          borderData: FlBorderData(show: false),
+    return Column(
+      children: [
+        DropdownButton<String>(
+          value: _selectedMonth,
+          icon: Icon(Icons.filter_alt),
+          dropdownColor: Colors.blueGrey[800],
+          style: TextStyle(color: Colors.white),
+          items: _availableMonths.map((String month) {
+            return DropdownMenuItem<String>(
+              value: month,
+              child: Text(month),
+            );
+          }).toList(),
+          onChanged: (String? newValue) {
+            if (newValue != null) {
+              setState(() {
+                _selectedMonth = newValue;
+                _calculateCategoryTotalsForMonth(_selectedMonth);
+              });
+            }
+          },
         ),
-      ),
+        SizedBox(height: 16),
+        Container(
+          height: 300,
+          padding: const EdgeInsets.all(16.0),
+          decoration: BoxDecoration(
+            color: Colors.blueGrey[800],
+            borderRadius: BorderRadius.circular(8.0),
+          ),
+          child: PieChart(
+            PieChartData(
+              sections: sections,
+              centerSpaceRadius: 40,
+              borderData: FlBorderData(show: false),
+              pieTouchData: PieTouchData(
+                touchCallback: (event, pieTouchResponse) {
+                  if (event is FlTapUpEvent && pieTouchResponse != null && pieTouchResponse.touchedSection != null) {
+                    final index = pieTouchResponse.touchedSection!.touchedSectionIndex;
+                    final category = _categoryTotals.keys.toList()[index];
+                    final amount = _categoryTotals[category];
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('$category: ${currencyFormatter.format(amount)}'),
+                      ),
+                    );
+                  }
+                },
+              ),
+            ),
+          ),
+        ),
+        SizedBox(height: 16),
+        _buildLegend(),
+      ],
     );
   }
 
-  Color _getCategoryColor(String category) {
-    switch (category) {
-      case 'jajan':
-        return Colors.green;
-      case 'makan':
-        return Colors.blue;
-      case 'others':
-        return Colors.orange;
-      default:
-        return Colors.grey;
-    }
+  Widget _buildLegend() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: _categoryTotals.keys.map((category) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 12,
+              height: 12,
+              color: _getCategoryColor(category),
+            ),
+            SizedBox(width: 4),
+            Text(category, style: TextStyle(color: Colors.white)),
+          ],
+        );
+      }).toList(),
+    );
   }
 
   Widget _buildMonthlyExpenseBarChart() {

@@ -4,8 +4,6 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import '../helpers/db_helper.dart'; // Adjust the path to your DBHelper file
 import 'home_screen.dart';   // Import your home screen
-import '../models/expense.dart';
-import 'package:sqflite/sqflite.dart';
 
 
 class SplashScreen extends StatefulWidget {
