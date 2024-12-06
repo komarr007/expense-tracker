@@ -19,11 +19,13 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _initializeApp() async {
-    await _importDataFromETL(); // Import ETL data
+    await _importExistingData(); // Import ETL data (uncomment this code if you want to import db)
+    await Future.delayed(Duration(seconds: 2)); 
     _navigateToHome();          // Navigate to home screen after completion
   }
 
-  Future<void> _importDataFromETL() async {
+  // uncomment the code below for importing data from db
+  Future<void> _importExistingData() async {
     final appDocDir = await getApplicationDocumentsDirectory();
     final etlDbPath = '${appDocDir.path}/expense_etl.db';
 
@@ -38,9 +40,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
     // Import data using DBHelper
     final dbHelper = DBHelper();
-    await dbHelper.importETLData(etlDbPath);
-
-    print('ETL data imported successfully.');
+    await dbHelper.importExistingData(etlDbPath);
   }
 
   void _navigateToHome() {

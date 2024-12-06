@@ -1,10 +1,12 @@
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/expense.dart';
+import 'package:logger/logger.dart';
 
 class DBHelper {
   static final DBHelper _instance = DBHelper._internal();
   static Database? _database;
+  final logger = Logger();
 
   factory DBHelper() {
     return _instance;
@@ -90,7 +92,7 @@ class DBHelper {
     });
   }
 
-  Future<void> importETLData(String etlDbPath) async {
+  Future<void> importExistingData(String etlDbPath) async {
     // Open the ETL database
     final etlDb = await openDatabase(etlDbPath);
 
@@ -100,7 +102,6 @@ class DBHelper {
     );
 
     if (tables.isEmpty) {
-      print('No expense tables found in ETL database.');
       return;
     }
 
@@ -109,11 +110,9 @@ class DBHelper {
 
     for (var table in tables) {
       final tableName = table['name'];
-      print('Importing data from $tableName');
 
       // Query data from the current ETL table
       final List<Map<String, dynamic>> etlData = await etlDb.query(tableName);
-      print('Fetched records from $tableName: $etlData');
 
       // Insert data into the app database
       for (var record in etlData) {
@@ -131,15 +130,13 @@ class DBHelper {
         // Insert into the app database
         try {
           await appDb.insert('expenses', appRecord, conflictAlgorithm: ConflictAlgorithm.replace);
-        } catch (e) {
-          print('Error inserting record: $e');
+        } catch (e, stackTrace) {
+          logger.e("An error occurred", error: e, stackTrace: stackTrace);
         }
       }
     }
 
     // Close the ETL database
     await etlDb.close();
-
-    print('Data import completed.');
   }
 }

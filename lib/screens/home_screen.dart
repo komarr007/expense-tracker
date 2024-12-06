@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'dashboard_screen.dart';
 import 'expense_list_screen.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:fluttertoast/fluttertoast.dart';
+import 'dart:io';
 
 
 class HomeScreen extends StatefulWidget {
@@ -103,8 +106,76 @@ class HistoryScreenContent extends StatelessWidget {
 }
 
 class ProfileScreenContent extends StatelessWidget {
+  // Function to export database
+  Future<void> _exportDatabase(BuildContext context) async {
+    try {
+      // Get the path to the internal database
+      final directory = await getApplicationDocumentsDirectory();
+      print(directory);
+      final dbPath = '${directory.parent.path}/databases/expense.db'; // Replace 'expenses.db' with your database name
+
+      // Check if the database exists
+      final dbFile = File(dbPath);
+      if (!await dbFile.exists()) {
+        Fluttertoast.showToast(
+          msg: "No database found!",
+          toastLength: Toast.LENGTH_SHORT,
+          gravity: ToastGravity.BOTTOM,
+        );
+        return;
+      }
+
+      // Define the path for the backup file
+      final externalDir = await getExternalStorageDirectory();
+      final backupPath = '${externalDir!.path}/expenses_backup.db';
+
+      // Copy the database to the backup file
+      final backupFile = File(backupPath);
+      await dbFile.copy(backupFile.path);
+
+      // Notify the user of success
+      Fluttertoast.showToast(
+        msg: "Database backed up successfully to $backupPath",
+        toastLength: Toast.LENGTH_LONG,
+        gravity: ToastGravity.BOTTOM,
+      );
+    } catch (e) {
+      // Handle errors
+      Fluttertoast.showToast(
+        msg: "Backup failed: $e",
+        toastLength: Toast.LENGTH_LONG,
+        gravity: ToastGravity.BOTTOM,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Center(child: Text('Profile feature currently under development'));
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Profile'),
+        backgroundColor: Color(0xFF1C1C1E), // Match the app's dark theme
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'Profile Page',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: () => _exportDatabase(context),
+              icon: Icon(Icons.backup),
+              label: Text('Backup Data'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blueAccent, // Button color
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
