@@ -4,6 +4,9 @@ import 'expense_list_screen.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 
 
 class HomeScreen extends StatefulWidget {
@@ -106,16 +109,15 @@ class HistoryScreenContent extends StatelessWidget {
 }
 
 class ProfileScreenContent extends StatelessWidget {
-  // Function to export database
+  // Function to export the database
   Future<void> _exportDatabase(BuildContext context) async {
     try {
-      // Get the path to the internal database
+      // Get the database path
       final directory = await getApplicationDocumentsDirectory();
-      print(directory);
-      final dbPath = '${directory.parent.path}/databases/expense.db'; // Replace 'expenses.db' with your database name
+      final dbPath = '${directory.parent.path}/databases/expense.db'; // Update with your actual database file name
+      final dbFile = File(dbPath);
 
       // Check if the database exists
-      final dbFile = File(dbPath);
       if (!await dbFile.exists()) {
         Fluttertoast.showToast(
           msg: "No database found!",
@@ -125,28 +127,100 @@ class ProfileScreenContent extends StatelessWidget {
         return;
       }
 
-      // Define the path for the backup file
-      final externalDir = await getExternalStorageDirectory();
-      final backupPath = '${externalDir!.path}/expenses_backup.db';
+      // Request storage permissions dynamically based on Android version
+      bool havePermission = await _requestStoragePermission();
+      if (!havePermission) {
+        Fluttertoast.showToast(
+          msg: "Storage permissions are required to back up the database.",
+          toastLength: Toast.LENGTH_LONG,
+          gravity: ToastGravity.BOTTOM,
+        );
+        return;
+      }
 
-      // Copy the database to the backup file
-      final backupFile = File(backupPath);
-      await dbFile.copy(backupFile.path);
+      // Use FilePicker to select the backup directory
+      String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
+      // Ensure the selected directory is valid
+      if (selectedDirectory == null || selectedDirectory.isEmpty) {
+        Fluttertoast.showToast(
+          msg: "Invalid directory selected.",
+          toastLength: Toast.LENGTH_LONG,
+          gravity: ToastGravity.BOTTOM,
+        );
+        return;
+      }
 
-      // Notify the user of success
+      // Copy the database to the selected directory
+      final backupPath = '$selectedDirectory/expenses_backup.db';
+      await dbFile.copy(backupPath);
+
+      // Notify the user of successful backup
       Fluttertoast.showToast(
-        msg: "Database backed up successfully to $backupPath",
+        msg: "Database backed up successfully to: $backupPath",
         toastLength: Toast.LENGTH_LONG,
         gravity: ToastGravity.BOTTOM,
       );
     } catch (e) {
       // Handle errors
       Fluttertoast.showToast(
-        msg: "Backup failed: $e",
+        msg: "Backup failed: ${e.toString()}",
         toastLength: Toast.LENGTH_LONG,
         gravity: ToastGravity.BOTTOM,
       );
     }
+  }
+
+  // Helper function to request storage permissions
+  Future<bool> _requestStoragePermission() async {
+    DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
+    AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
+
+    if (androidInfo.version.sdkInt < 33) {
+      if (await Permission.storage.request().isGranted) {
+        return true;
+      } else if (await Permission.storage.isPermanentlyDenied) {
+        openAppSettings();
+      } else if (await Permission.audio.request().isDenied){
+        openAppSettings();
+      } if (await Permission.manageExternalStorage.request().isGranted) {
+        return true;
+      } if (await Permission.manageExternalStorage.isPermanentlyDenied) {
+        openAppSettings();
+      } if (await Permission.manageExternalStorage.request().isDenied){
+        return false;
+      } else {
+        if (await Permission.photos.request().isGranted) {
+          return true;
+        }else if (await Permission.photos.isPermanentlyDenied) {
+          openAppSettings();
+        }else if (await Permission.photos.request().isDenied){
+          return false;
+        }
+      }
+    } else if (Platform.isIOS) {
+      return true;
+    }
+
+    return false;
+  }
+
+  // Debug function for permissions
+  void debugPermissions() async {
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.storage,
+      Permission.manageExternalStorage,
+    ].request();
+
+    statuses.forEach((permission, status) {
+      print('Permission: $permission, Status: $status');
+    });
+
+    bool isStorageGranted = await Permission.storage.isGranted;
+    bool isManageExternalStorageGranted =
+        await Permission.manageExternalStorage.isGranted;
+
+    print('Is Storage Permission Granted: $isStorageGranted');
+    print('Is Manage External Storage Permission Granted: $isManageExternalStorageGranted');
   }
 
   @override
@@ -173,6 +247,11 @@ class ProfileScreenContent extends StatelessWidget {
                 backgroundColor: Colors.blueAccent, // Button color
               ),
             ),
+            ElevatedButton(
+              onPressed: debugPermissions,
+              child: Text("Debug Permissions"),
+            )
+
           ],
         ),
       ),

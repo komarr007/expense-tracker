@@ -3,6 +3,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import '../models/expense.dart';
 import '../helpers/db_helper.dart';
+import 'package:logger/logger.dart';
 
 class DashboardScreen extends StatefulWidget {
   final String userName = "Mario Rangga";
@@ -18,7 +19,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   double _monthlyTotalExpense = 0.0;
   Expense? _biggestExpense;
   Map<String, double> _categoryTotals = {};
+  bool _isLoading = false;
 
+  final Logger _logger = Logger();
   final currencyFormatter = NumberFormat.currency(locale: 'id_ID', symbol: 'Rp', decimalDigits: 0);
 
   @override
@@ -28,42 +31,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _fetchExpenses() async {
-    List<Expense> expenses = await DBHelper().getExpenses();
     setState(() {
-      _expenses = expenses;
-      _availableMonths = _getAvailableMonths();
-      _selectedMonth = _availableMonths.isNotEmpty ? _availableMonths.first : '';
-      _calculateCategoryTotalsForMonth(_selectedMonth);
-      _calculateMonthlyTotalExpense();
-      _calculateBiggestExpense();
-      _calculateCategoryTotals();
+      _isLoading = true;
     });
+    try {
+      List<Expense> expenses = await DBHelper().getExpenses();
+      setState(() {
+        _expenses = expenses;
+        _availableMonths = _getAvailableMonths();
+        _selectedMonth = _availableMonths.isNotEmpty ? _availableMonths.first : '';
+        _filterExpensesByMonth(_selectedMonth);
+      });
+    } catch (e, stackTrace) {
+      _logger.e('Error fetching expenses', error: e, stackTrace: stackTrace);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to fetch expenses. Please try again.')),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _filterExpensesByMonth(String month) {
+    List<Expense> filteredExpenses = _expenses.where((expense) => DateFormat('MMMM yyyy').format(expense.spend_date) == month).toList();
+    _calculateCategoryTotalsForMonth(filteredExpenses);
+    _calculateMonthlyTotalExpense(filteredExpenses);
+    _calculateBiggestExpense(filteredExpenses);
   }
 
   List<String> _getAvailableMonths() {
-    final uniqueMonths = _expenses
-        .map((expense) => DateFormat('MMM yyyy').format(expense.spend_date))
-        .toSet()
-        .toList();
-    uniqueMonths.sort((a, b) => DateFormat('MMM yyyy').parse(b).compareTo(DateFormat('MMM yyyy').parse(a)));
-    return uniqueMonths;
+    return _expenses.map((expense) => DateFormat('MMMM yyyy').format(expense.spend_date)).toSet().toList();
   }
 
-  void _calculateCategoryTotalsForMonth(String selectedMonth) {
-    _categoryTotals.clear();
-    if (selectedMonth.isEmpty) return;
-
-    final monthExpenses = _expenses.where((expense) {
-      String expenseMonth = DateFormat('MMM yyyy').format(expense.spend_date);
-      return expenseMonth == selectedMonth;
-    }).toList();
-
-    for (var expense in monthExpenses) {
-      _categoryTotals.update(
-        expense.category,
-        (value) => value + expense.amount,
-        ifAbsent: () => expense.amount,
-      );
+  void _calculateCategoryTotalsForMonth(List<Expense> expenses) {
+    _categoryTotals = {};
+    for (var expense in expenses) {
+      if (_categoryTotals.containsKey(expense.category)) {
+        _categoryTotals[expense.category] = _categoryTotals[expense.category]! + expense.amount;
+      } else {
+        _categoryTotals[expense.category] = expense.amount;
+      }
     }
   }
 
@@ -90,28 +99,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  void _calculateMonthlyTotalExpense() {
-    if (_expenses.isEmpty) {
-      _monthlyTotalExpense = 0.0;
-      return;
-    }
-
-    DateTime mostRecentDate = _expenses.map((e) => e.spend_date).reduce((a, b) => a.isAfter(b) ? a : b);
-    DateTime startOfRecentMonth = DateTime(mostRecentDate.year, mostRecentDate.month, 1);
-    DateTime endOfRecentMonth = DateTime(mostRecentDate.year, mostRecentDate.month + 1, 0);
-
-    _monthlyTotalExpense = _expenses
-        .where((expense) =>
-            expense.spend_date.isAfter(startOfRecentMonth.subtract(Duration(days: 1))) &&
-            expense.spend_date.isBefore(endOfRecentMonth.add(Duration(days: 1))))
-        .fold(0.0, (sum, expense) => sum + expense.amount);
+  void _calculateMonthlyTotalExpense(List<Expense> expenses) {
+    _monthlyTotalExpense = expenses.fold(0.0, (sum, expense) => sum + expense.amount);
   }
 
-  void _calculateBiggestExpense() {
-    if (_expenses.isNotEmpty) {
-      _biggestExpense = _expenses.reduce((a, b) => a.amount > b.amount ? a : b);
+  void _calculateBiggestExpense(List<Expense> expenses) {
+    if (expenses.isNotEmpty) {
+      _biggestExpense = expenses.reduce((curr, next) => curr.amount > next.amount ? curr : next);
+    } else {
+      _biggestExpense = null;
     }
   }
+
 
   void _calculateCategoryTotals() {
     _categoryTotals.clear();
@@ -153,7 +152,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
-          _buildSummaryCard('Total Expenses (Recent Month)', currencyFormatter.format(_monthlyTotalExpense), Colors.white),
+          _buildSummaryCard('Total Expenses ($_selectedMonth)', currencyFormatter.format(_monthlyTotalExpense), Colors.white),
           _buildSummaryCard(
             'Biggest Expense',
             _biggestExpense != null
@@ -217,7 +216,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             if (newValue != null) {
               setState(() {
                 _selectedMonth = newValue;
-                _calculateCategoryTotalsForMonth(_selectedMonth);
+                _filterExpensesByMonth(_selectedMonth);
               });
             }
           },

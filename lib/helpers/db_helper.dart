@@ -93,7 +93,7 @@ class DBHelper {
   }
 
   Future<void> importExistingData(String etlDbPath) async {
-    // Open the ETL database
+    // Open the existing database
     final etlDb = await openDatabase(etlDbPath);
 
     // Get all expense tables dynamically
@@ -111,7 +111,7 @@ class DBHelper {
     for (var table in tables) {
       final tableName = table['name'];
 
-      // Query data from the current ETL table
+      // Query data from the current existing table
       final List<Map<String, dynamic>> etlData = await etlDb.query(tableName);
 
       // Insert data into the app database
@@ -136,7 +136,7 @@ class DBHelper {
       }
     }
 
-    // Close the ETL database
+    // Close the existing database
     await etlDb.close();
   }
 }
