@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'add_expense_screen.dart';
 import '../models/expense.dart';
+import '../models/history_record.dart';
 import '../helpers/db_helper.dart';
-import 'dart:convert';
 import 'package:intl/intl.dart';
 
 class ExpenseListScreen extends StatefulWidget {
+  const ExpenseListScreen({super.key});
+
   @override
   _ExpenseListScreenState createState() => _ExpenseListScreenState();
 }
@@ -13,7 +15,7 @@ class ExpenseListScreen extends StatefulWidget {
 class _ExpenseListScreenState extends State<ExpenseListScreen> {
   List<Expense> _expenses = [];
   List<Expense> _allExpenses = [];
-  Map<String, List<Expense>> _expensesByMonth = {};
+  final Map<String, List<Expense>> _expensesByMonth = {};
   final NumberFormat _currencyFormat = NumberFormat('#,##0', 'en_US');
   bool _showSearchBar = false;
   bool _filterActive = false;
@@ -48,7 +50,24 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
 
   void _deleteExpense(Expense expense) async {
     if (expense.id != null) {
+      // log deletion to history
+      final historyRecord = HistoryRecord(
+        name: expense.name,
+        amount: expense.amount,
+        spend_date: expense.spend_date,
+        created_at: expense.created_at,
+        updated_at: expense.updated_at,
+        category: expense.category,
+        deleted_at: DateTime.now(),
+      );
+      await DBHelper().insertHistoryRecord(historyRecord);
+
+      //delete expense from list
       await DBHelper().deleteExpense(expense.id!);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Record deleted and logged in history')),
+      );
     }
     _loadExpenses();
   }
@@ -233,8 +252,8 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
             MaterialPageRoute(builder: (context) => AddExpenseScreen()),
           ).then((_) => _loadExpenses());
         },
-        child: Icon(Icons.add),
         backgroundColor: Colors.blue,
+        child: Icon(Icons.add),
       ),
     );
   }

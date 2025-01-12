@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
@@ -7,11 +9,15 @@ import 'home_screen.dart';   // Import your home screen
 
 
 class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
   @override
   _SplashScreenState createState() => _SplashScreenState();
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  final dbHelper = DBHelper();
+
   @override
   void initState() {
     super.initState();
@@ -19,12 +25,13 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _initializeApp() async {
-    await _importExistingData(); // Import ETL data (uncomment this code if you want to import db)
+    await _importExistingData();// Import ETL data (uncomment this code if you want to import db)
+    await dbHelper.deleteOldHistoryRecords();
     await Future.delayed(Duration(seconds: 2)); 
     _navigateToHome();          // Navigate to home screen after completion
   }
 
-  // uncomment the code below for importing data from db
+  //code below for importing data from db
   Future<void> _importExistingData() async {
     final appDocDir = await getApplicationDocumentsDirectory();
     final etlDbPath = '${appDocDir.path}/expense_etl.db';
@@ -32,15 +39,24 @@ class _SplashScreenState extends State<SplashScreen> {
     // Check if the ETL database is already copied
     final etlDbExists = await File(etlDbPath).exists();
     if (!etlDbExists) {
-      // Copy ETL database from assets
-      final data = await rootBundle.load('assets/databases/expense_etl.db');
-      final bytes = data.buffer.asUint8List();
-      await File(etlDbPath).writeAsBytes(bytes);
+      try {
+        // Copy ETL database from assets
+        final data = await rootBundle.load('assets/databases/expense_etl.db');
+        final bytes = data.buffer.asUint8List();
+        await File(etlDbPath).writeAsBytes(bytes);
+      } catch (e) {
+        // Handle the case where the database file is missing from assets
+        print('ETL database file not found in assets: $e');
+      }
     }
 
     // Import data using DBHelper
-    final dbHelper = DBHelper();
-    await dbHelper.importExistingData(etlDbPath);
+    try {
+      await dbHelper.importExistingData(etlDbPath);
+    } catch (e) {
+      // Handle any errors during data import
+      print('Error importing data: $e');
+    }
   }
 
   void _navigateToHome() {

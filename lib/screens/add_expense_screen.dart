@@ -1,15 +1,34 @@
 import 'package:flutter/material.dart';
-import '../models/expense.dart';
-import '../helpers/db_helper.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import '../helpers/db_helper.dart';
+import '../models/expense.dart';
 
 class AddExpenseScreen extends StatefulWidget {
   final Expense? expense; // Nullable Expense parameter to support editing
 
-  AddExpenseScreen({this.expense});
+  const AddExpenseScreen({super.key, this.expense});
 
   @override
   _AddExpenseScreenState createState() => _AddExpenseScreenState();
+}
+
+class MoneyInputFormatter extends TextInputFormatter {
+  final NumberFormat _formatter = NumberFormat('#,##0', 'en_US');
+
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    if (newValue.text.isEmpty) {
+      return newValue.copyWith(text: '');
+    }
+
+    final int selectionIndex = newValue.selection.end;
+    final String formattedText = _formatter.format(int.parse(newValue.text.replaceAll(',', '')));
+    return TextEditingValue(
+      text: formattedText,
+      selection: TextSelection.collapsed(offset: selectionIndex + formattedText.length - newValue.text.length),
+    );
+  }
 }
 
 class _AddExpenseScreenState extends State<AddExpenseScreen> {
@@ -45,6 +64,33 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     }
   }
 
+  void _saveExpense() {
+    if (_formKey.currentState!.validate()) {
+      final String name = _nameController.text;
+      final double amount = double.parse(_amountController.text.replaceAll(',', ''));
+      final DateTime spendDate = DateTime.parse(_spendDateController.text);
+      final String category = _categoryController.text;
+
+      final Expense newExpense = Expense(
+        name: name,
+        amount: amount,
+        spend_date: spendDate,
+        category: category,
+        created_at: DateTime.now(),
+        updated_at: DateTime.now(),
+      );
+
+      if (widget.expense == null) {
+        DBHelper().insertExpense(newExpense);
+      } else {
+        final updatedExpense = newExpense.copyWith(id: widget.expense!.id);
+        DBHelper().updateExpense(updatedExpense);
+      }
+
+      Navigator.pop(context);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -56,10 +102,10 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         child: Form(
           key: _formKey,
           child: Column(
-            children: [
+            children: <Widget>[
               TextFormField(
                 controller: _nameController,
-                decoration: InputDecoration(labelText: 'Expense Name'),
+                decoration: InputDecoration(labelText: 'Name'),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter a name';
@@ -69,8 +115,15 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               ),
               TextFormField(
                 controller: _amountController,
-                decoration: InputDecoration(labelText: 'Amount'),
                 keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  MoneyInputFormatter(),
+                ],
+                decoration: InputDecoration(
+                  labelText: 'Amount',
+                  hintText: 'Enter amount',
+                ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter an amount';
@@ -80,44 +133,35 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               ),
               TextFormField(
                 controller: _spendDateController,
-                decoration: InputDecoration(labelText: 'Spend Date'),
-                readOnly: true,
-                onTap: () => _selectDate(context),
+                decoration: InputDecoration(
+                  labelText: 'Spend Date',
+                  hintText: 'Enter spend date',
+                ),
+                onTap: () async {
+                  FocusScope.of(context).requestFocus(new FocusNode());
+                  await _selectDate(context);
+                },
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Please enter a date';
+                    return 'Please enter a spend date';
                   }
                   return null;
                 },
               ),
               TextFormField(
                 controller: _categoryController,
-                decoration: InputDecoration(labelText: 'Category'), // New category field
+                decoration: InputDecoration(labelText: 'Category'),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter a category';
+                  }
+                  return null;
+                },
               ),
               SizedBox(height: 20),
               ElevatedButton(
-                onPressed: () async {
-                  if (_formKey.currentState!.validate()) {
-                    final expense = Expense(
-                      id: widget.expense?.id, // Use existing id if editing
-                      name: _nameController.text,
-                      amount: double.parse(_amountController.text),
-                      spend_date: DateTime.parse(_spendDateController.text),
-                      category: _categoryController.text, // Add category here
-                    );
-
-                    if (widget.expense == null) {
-                      // Add new expense
-                      await DBHelper().insertExpense(expense);
-                    } else {
-                      // Update existing expense
-                      await DBHelper().updateExpense(expense);
-                    }
-
-                    Navigator.pop(context); // Go back to the previous screen
-                  }
-                },
-                child: Text(widget.expense == null ? 'Add Expense' : 'Update Expense'),
+                onPressed: _saveExpense,
+                child: Text('Save'),
               ),
             ],
           ),

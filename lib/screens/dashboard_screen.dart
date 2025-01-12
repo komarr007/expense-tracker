@@ -8,6 +8,8 @@ import 'package:logger/logger.dart';
 class DashboardScreen extends StatefulWidget {
   final String userName = "Mario Rangga";
 
+  const DashboardScreen({super.key});
+
   @override
   _DashboardScreenState createState() => _DashboardScreenState();
 }
@@ -318,7 +320,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        child: Container(
+        child: SizedBox(
           width: barGroups.length * 70.0,
           child: BarChart(
             BarChartData(

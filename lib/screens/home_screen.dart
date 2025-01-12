@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dashboard_screen.dart';
 import 'expense_list_screen.dart';
+import 'history_screen.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'dart:io';
@@ -10,6 +11,8 @@ import 'package:device_info_plus/device_info_plus.dart';
 
 
 class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
   @override
   _HomeScreenState createState() => _HomeScreenState();
 }
@@ -22,7 +25,7 @@ class _HomeScreenState extends State<HomeScreen> {
     HomeScreenContent(), // Replace with actual screen widgets
     ExpenseListScreen(),
     DashboardScreen(),
-    HistoryScreenContent(),
+    HistoryScreen(),
     ProfileScreenContent(),
   ];
 
@@ -71,6 +74,8 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class HomeScreenContent extends StatelessWidget {
+  const HomeScreenContent({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -88,6 +93,8 @@ class HomeScreenContent extends StatelessWidget {
 }
 
 class RecordScreenContent extends StatelessWidget {
+  const RecordScreenContent({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Center(child: Text('Record Screen Content'));
@@ -95,6 +102,8 @@ class RecordScreenContent extends StatelessWidget {
 }
 
 class AnalyticsScreenContent extends StatelessWidget {
+  const AnalyticsScreenContent({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Center(child: Text('Analytics Screen Content'));
@@ -102,6 +111,8 @@ class AnalyticsScreenContent extends StatelessWidget {
 }
 
 class HistoryScreenContent extends StatelessWidget {
+  const HistoryScreenContent({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Center(child: Text('History feature currently under development'));
@@ -109,6 +120,8 @@ class HistoryScreenContent extends StatelessWidget {
 }
 
 class ProfileScreenContent extends StatelessWidget {
+  const ProfileScreenContent({super.key});
+
   // Function to export the database
   Future<void> _exportDatabase(BuildContext context) async {
     try {
