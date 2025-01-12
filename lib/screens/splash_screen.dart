@@ -1,12 +1,10 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
+import 'package:logger/logger.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import '../helpers/db_helper.dart'; // Adjust the path to your DBHelper file
-import 'home_screen.dart';   // Import your home screen
-
+import 'home_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -17,18 +15,19 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> {
   final dbHelper = DBHelper();
+  final Logger logger = Logger(); 
 
   @override
   void initState() {
     super.initState();
-    _initializeApp(); // Initialize the app
+    _initializeApp();
   }
 
   Future<void> _initializeApp() async {
-    await _importExistingData();// Import ETL data (uncomment this code if you want to import db)
+    await _importExistingData();
     await dbHelper.deleteOldHistoryRecords();
     await Future.delayed(Duration(seconds: 2)); 
-    _navigateToHome();          // Navigate to home screen after completion
+    _navigateToHome();
   }
 
   //code below for importing data from db
@@ -36,17 +35,14 @@ class _SplashScreenState extends State<SplashScreen> {
     final appDocDir = await getApplicationDocumentsDirectory();
     final etlDbPath = '${appDocDir.path}/expense_etl.db';
 
-    // Check if the ETL database is already copied
     final etlDbExists = await File(etlDbPath).exists();
     if (!etlDbExists) {
       try {
-        // Copy ETL database from assets
         final data = await rootBundle.load('assets/databases/expense_etl.db');
         final bytes = data.buffer.asUint8List();
         await File(etlDbPath).writeAsBytes(bytes);
       } catch (e) {
-        // Handle the case where the database file is missing from assets
-        print('ETL database file not found in assets: $e');
+        logger.e('ETL database file not found in assets', error: e);
       }
     }
 
@@ -55,14 +51,14 @@ class _SplashScreenState extends State<SplashScreen> {
       await dbHelper.importExistingData(etlDbPath);
     } catch (e) {
       // Handle any errors during data import
-      print('Error importing data: $e');
+      logger.e('Error importing data', error: e);
     }
   }
 
   void _navigateToHome() {
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (context) => HomeScreen()), // Navigate to home screen
+      MaterialPageRoute(builder: (context) => HomeScreen()),
     );
   }
 

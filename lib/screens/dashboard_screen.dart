@@ -21,7 +21,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   double _monthlyTotalExpense = 0.0;
   Expense? _biggestExpense;
   Map<String, double> _categoryTotals = {};
-  bool _isLoading = false;
 
   final Logger _logger = Logger();
   final currencyFormatter = NumberFormat.currency(locale: 'id_ID', symbol: 'Rp', decimalDigits: 0);
@@ -34,7 +33,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _fetchExpenses() async {
     setState(() {
-      _isLoading = true;
     });
     try {
       List<Expense> expenses = await DBHelper().getExpenses();
@@ -51,7 +49,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     } finally {
       setState(() {
-        _isLoading = false;
       });
     }
   }
