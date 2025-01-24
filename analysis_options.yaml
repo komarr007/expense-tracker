@@ -1,0 +1,47 @@
+# This file configures the analyzer to check for errors, warnings, and lints.
+
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  strong-mode:
+    implicit-casts: true # Allow implicit casts where type inference is clear.
+    implicit-dynamic: true # Allow dynamic types without explicit annotations.
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+
+linter:
+  rules:
+    # Style rules
+    - prefer_final_locals # Suggest using 'final' for local variables if possible.
+    - prefer_single_quotes # Use single quotes for strings unless interpolation is required.
+    - avoid_print # Prevent print statements in production code.
+    - annotate_overrides # Ensure overridden methods are marked with @override.
+    - curly_braces_in_flow_control_structures # Use curly braces for clarity in control structures.
+    - avoid_redundant_argument_values # Avoid specifying default values explicitly.
+    - prefer_const_constructors # Prefer 'const' where possible for widget creation.
+    - prefer_const_declarations # Prefer 'const' for declarations of immutable values.
+    - prefer_typing_uninitialized_variables # Encourage type annotations for uninitialized variables.
+
+    # Naming and readability
+    - camel_case_types # Use camel case for type names.
+    - constant_identifier_names # Use uppercase with underscores for constants.
+    - file_names # Ensure file names follow snake_case convention.
+    - library_names # Use lowercase_with_underscores for library names.
+
+    # Best practices
+    - always_specify_types # Always specify types for better readability and maintainability.
+    - avoid_unnecessary_containers # Avoid wrapping widgets in unnecessary containers.
+    - use_full_hex_values_for_flutter_colors # Use full 8-digit hex values for colors in Flutter.
+    - avoid_dynamic_calls # Avoid using dynamic calls unless absolutely necessary.
+    - avoid_positional_boolean_parameters # Use named parameters for better readability.
+    - prefer_is_empty # Prefer using '.isEmpty' instead of length checks for collections.
+
+    # Performance
+    - prefer_final_fields # Use 'final' for class properties that are not reassigned.
+    - avoid_unnecessary_set_literal # Avoid unnecessary set literals.
+
+    # Exclusions
+    - unnecessary_brace_in_string_interps # Do not enforce braces in simple interpolations.
+
+# Add any additional rules or exclusions here if specific warnings/errors are frequent.

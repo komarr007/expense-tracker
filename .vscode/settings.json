@@ -1,0 +1,11 @@
+{
+    "java.configuration.updateBuildConfiguration": "interactive",
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "driver": "SQLite",
+            "name": "expense_db",
+            "database": "D:\\Android_Project\\the_money_logger\\expense.db"
+        }
+    ]
+}
