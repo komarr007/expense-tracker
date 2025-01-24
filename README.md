@@ -11,10 +11,12 @@ Expense Tracker is a Flutter-based application designed to help users track thei
 
 ## Screenshots
 
-<img src="./documentation/images/homeview.png" style="width:24%; height:auto;" alt="home view">
-<img src="./documentation/images/expenselistview.png" style="width:24.6%; height:auto;" alt="expense list">
-<img src="./documentation/images/historyview.png" style="width:24.4%; height:auto;" alt="history view">
-<img src="./documentation/images/dashboardview.png" style="width:25%; height:auto;">
+<p align="center">
+   <img src="./documentation/images/homeview.png" style="width:24%; height:auto;" alt="home view">
+   <img src="./documentation/images/expenselistview.png" style="width:24.6%; height:auto;" alt="expense list">
+   <img src="./documentation/images/historyview.png" style="width:24.4%; height:auto;" alt="history view">
+   <img src="./documentation/images/dashboardview.png" style="width:25%; height:auto;">
+</p>
 
 ## Getting Started
 
