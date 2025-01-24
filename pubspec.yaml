@@ -45,6 +45,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   logger: ^2.5.0
   path: ^1.9.0
+  mockito: ^5.4.4
+  build_runner: ^2.4.13
 
 dev_dependencies:
   flutter_test:

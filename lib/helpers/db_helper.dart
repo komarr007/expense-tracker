@@ -15,6 +15,11 @@ class DBHelper {
 
   DBHelper._internal();
 
+  // Add a named constructor for testing purposes
+  DBHelper.test({Database? database}) {
+    _database = database;
+  }
+  
   Future<Database> get database async {
     if (_database != null) return _database!;
 
