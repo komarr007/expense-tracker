@@ -11,6 +11,7 @@
 migrate_working_dir/
 *.db
 *.sql
+*.sqlite
 
 # IntelliJ related
 *.iml
