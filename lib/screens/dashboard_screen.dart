@@ -21,6 +21,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   double _monthlyTotalExpense = 0.0;
   Expense? _biggestExpense;
   Map<String, double> _categoryTotals = {};
+  double _savingsTotal = 0.0;
 
   final Logger _logger = Logger();
   final currencyFormatter = NumberFormat.currency(locale: 'id_ID', symbol: 'Rp', decimalDigits: 0);
@@ -58,6 +59,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _calculateCategoryTotalsForMonth(filteredExpenses);
     _calculateMonthlyTotalExpense(filteredExpenses);
     _calculateBiggestExpense(filteredExpenses);
+    _calculateTotalSavings(filteredExpenses);
   }
 
   List<String> _getAvailableMonths() {
@@ -110,6 +112,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  void _calculateTotalSavings(List<Expense> expenses) {
+    _savingsTotal = _expenses.where((expense) => expense.category == 'savings').fold(0.0, (sum, expense) => sum + expense.amount);
+  }
 
   void _calculateCategoryTotals() {
     _categoryTotals.clear();
@@ -160,6 +165,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Colors.white,
           ),
           _buildSummaryCard('Number of Expenses (All Month)', '${_expenses.length}', Colors.white),
+          _buildSummaryCard('Total Savings', currencyFormatter.format(_savingsTotal), Colors.white),
         ],
       ),
     );
