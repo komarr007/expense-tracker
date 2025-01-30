@@ -14,7 +14,7 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  final dbHelper = DBHelper();
+  final DBHelper dbHelper = DBHelper();
   final Logger logger = Logger(); 
 
   @override
@@ -26,20 +26,20 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _initializeApp() async {
     await _importExistingData();
     await dbHelper.deleteOldHistoryRecords();
-    await Future.delayed(Duration(seconds: 2)); 
+    await Future.delayed(const Duration(seconds: 2)); 
     _navigateToHome();
   }
 
   //code below for importing data from db
   Future<void> _importExistingData() async {
-    final appDocDir = await getApplicationDocumentsDirectory();
-    final etlDbPath = '${appDocDir.path}/expense_etl.db';
+    final Directory appDocDir = await getApplicationDocumentsDirectory();
+    final String etlDbPath = '${appDocDir.path}/expense_etl.db';
 
-    final etlDbExists = await File(etlDbPath).exists();
+    final bool etlDbExists = await File(etlDbPath).exists();
     if (!etlDbExists) {
       try {
-        final data = await rootBundle.load('assets/databases/expense_etl.db');
-        final bytes = data.buffer.asUint8List();
+        final ByteData data = await rootBundle.load('assets/databases/expense_etl.db');
+        final Uint8List bytes = data.buffer.asUint8List();
         await File(etlDbPath).writeAsBytes(bytes);
       } catch (e) {
         logger.e('ETL database file not found in assets', error: e);
@@ -58,7 +58,7 @@ class _SplashScreenState extends State<SplashScreen> {
   void _navigateToHome() {
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (context) => HomeScreen()),
+      MaterialPageRoute(builder: (BuildContext context) => const HomeScreen()),
     );
   }
 
@@ -68,16 +68,16 @@ class _SplashScreenState extends State<SplashScreen> {
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+          children: <Widget>[
             Image.asset(
               'assets/images/logo.png', 
               width: 150, 
               height: 150,
             ), // App logo
-            SizedBox(height: 20),
-            CircularProgressIndicator(), // Loading animation
-            SizedBox(height: 20),
-            Text(
+            const SizedBox(height: 20),
+            const CircularProgressIndicator(), // Loading animation
+            const SizedBox(height: 20),
+            const Text(
               'Initializing app...',
               style: TextStyle(fontSize: 16, color: Colors.grey),
             ), // Informative text

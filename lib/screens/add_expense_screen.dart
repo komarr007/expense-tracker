@@ -32,11 +32,11 @@ class MoneyInputFormatter extends TextInputFormatter {
 }
 
 class _AddExpenseScreenState extends State<AddExpenseScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _amountController = TextEditingController();
-  final _spendDateController = TextEditingController();
-  final _categoryController = TextEditingController(); // New category controller
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _amountController = TextEditingController();
+  final TextEditingController _spendDateController = TextEditingController();
+  final TextEditingController _categoryController = TextEditingController(); // New category controller
 
   @override
   void initState() {
@@ -83,7 +83,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       if (widget.expense == null) {
         DBHelper().insertExpense(newExpense);
       } else {
-        final updatedExpense = newExpense.copyWith(id: widget.expense!.id);
+        final Expense updatedExpense = newExpense.copyWith(id: widget.expense!.id);
         DBHelper().updateExpense(updatedExpense);
       }
 
@@ -105,8 +105,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             children: <Widget>[
               TextFormField(
                 controller: _nameController,
-                decoration: InputDecoration(labelText: 'Name'),
-                validator: (value) {
+                decoration: const InputDecoration(labelText: 'Name'),
+                validator: (String? value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter a name';
                   }
@@ -116,15 +116,15 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               TextFormField(
                 controller: _amountController,
                 keyboardType: TextInputType.number,
-                inputFormatters: [
+                inputFormatters: <TextInputFormatter>[
                   FilteringTextInputFormatter.digitsOnly,
                   MoneyInputFormatter(),
                 ],
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   labelText: 'Amount',
                   hintText: 'Enter amount',
                 ),
-                validator: (value) {
+                validator: (String? value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter an amount';
                   }
@@ -133,15 +133,15 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               ),
               TextFormField(
                 controller: _spendDateController,
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   labelText: 'Spend Date',
                   hintText: 'Enter spend date',
                 ),
                 onTap: () async {
-                  FocusScope.of(context).requestFocus(new FocusNode());
+                  FocusScope.of(context).requestFocus(FocusNode());
                   await _selectDate(context);
                 },
-                validator: (value) {
+                validator: (String? value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter a spend date';
                   }
@@ -150,18 +150,18 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               ),
               TextFormField(
                 controller: _categoryController,
-                decoration: InputDecoration(labelText: 'Category'),
-                validator: (value) {
+                decoration: const InputDecoration(labelText: 'Category'),
+                validator: (String? value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter a category';
                   }
                   return null;
                 },
               ),
-              SizedBox(height: 20),
+              const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: _saveExpense,
-                child: Text('Save'),
+                child: const Text('Save'),
               ),
             ],
           ),

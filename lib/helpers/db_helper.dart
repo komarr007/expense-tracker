@@ -7,7 +7,7 @@ import 'package:logger/logger.dart';
 class DBHelper {
   static final DBHelper _instance = DBHelper._internal();
   static Database? _database;
-  final logger = Logger();
+  final Logger logger = Logger();
 
   factory DBHelper() {
     return _instance;
@@ -28,7 +28,7 @@ class DBHelper {
   }
 
   Future<Database> _initDatabase() async {
-    String path = join(await getDatabasesPath(), 'expense.db');
+    final String path = join(await getDatabasesPath(), 'expense.db');
     return await openDatabase(
       path,
       version: 3,
@@ -89,34 +89,34 @@ class DBHelper {
   }
 
   Future<int> insertExpense(Expense expense) async {
-    final db = await database;
+    final Database db = await database;
     return await db.insert('expenses', expense.toMap());
   }
 
   Future<int> deleteExpense(int id) async {
-    final db = await database;
+    final Database db = await database;
     return await db.delete(
       'expenses',
       where: 'id = ?',
-      whereArgs: [id],
+      whereArgs: <Object?>[id],
     );
   }
 
   Future<int> updateExpense(Expense expense) async {
-    final db = await database;
+    final Database db = await database;
     return await db.update(
       'expenses',
       expense.toMap(),
       where: 'id = ?',
-      whereArgs: [expense.id],
+      whereArgs: <Object?>[expense.id],
     );
   }
 
   Future<List<Expense>> getExpenses() async {
-    final db = await database;
+    final Database db = await database;
     final List<Map<String, dynamic>> maps = await db.query('expenses');
 
-    return List.generate(maps.length, (i) {
+    return List.generate(maps.length, (int i) {
       return Expense(
         id: maps[i]['id'],
         name: maps[i]['name'],
@@ -130,15 +130,15 @@ class DBHelper {
   }
 
   Future<int> insertHistoryRecord(HistoryRecord record) async {
-    final db = await database;
+    final Database db = await database;
     return await db.insert('history_records', record.toMap());
   }
 
   Future<List<HistoryRecord>> getHistoryRecords() async {
-    final db = await database;
+    final Database db = await database;
     final List<Map<String, dynamic>> maps = await db.query('history_records');
 
-    return List.generate(maps.length, (i) {
+    return List.generate(maps.length, (int i) {
       return HistoryRecord(
         id: maps[i]['id'],
         name: maps[i]['name'],
@@ -153,27 +153,27 @@ class DBHelper {
   }
 
   Future<int> deleteHistoryRecord(int id) async {
-    final db = await database;
+    final Database db = await database;
     return await db.delete(
       'history_records',
       where: 'id = ?',
-      whereArgs: [id],
+      whereArgs: <Object?>[id],
     );
   }
 
   Future<void> deleteOldHistoryRecords() async {
-    final db = await database;
-    final twoWeeksAgo = DateTime.now().subtract(Duration(days: 14)).toIso8601String();
+    final Database db = await database;
+    final String twoWeeksAgo = DateTime.now().subtract(const Duration(days: 14)).toIso8601String();
     await db.delete(
       'history_records',
       where: 'deleted_at < ?',
-      whereArgs: [twoWeeksAgo],
+      whereArgs: <Object?>[twoWeeksAgo],
     );
   }
 
   Future<void> importExistingData(String etlDbPath) async {
     // Open the existing database
-    final etlDb = await openDatabase(etlDbPath);
+    final Database etlDb = await openDatabase(etlDbPath);
 
     // Get all expense tables dynamically
     final List<Map<String, dynamic>> tables = await etlDb.rawQuery(
@@ -185,17 +185,17 @@ class DBHelper {
     }
 
     // Open the app database
-    final appDb = await database;
+    final Database appDb = await database;
 
-    for (var table in tables) {
+    for (Map<String, dynamic> table in tables) {
       final tableName = table['name'];
 
       // Query data from the current existing table
       final List<Map<String, dynamic>> etlData = await etlDb.query(tableName);
 
       // Insert data into the app database
-      for (var record in etlData) {
-        final appRecord = {
+      for (Map<String, dynamic> record in etlData) {
+        final Map<String, dynamic> appRecord = <String, dynamic>{
           'id': record['id'],  // Primary key (can be null to auto-generate)
           'name': record['name'],
           'amount': record['amount']?.toDouble(),
@@ -210,7 +210,7 @@ class DBHelper {
         try {
           await appDb.insert('expenses', appRecord, conflictAlgorithm: ConflictAlgorithm.replace);
         } catch (e, stackTrace) {
-          logger.e("An error occurred", error: e, stackTrace: stackTrace);
+          logger.e('An error occurred', error: e, stackTrace: stackTrace);
         }
       }
     }

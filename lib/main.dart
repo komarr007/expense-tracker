@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'screens/splash_screen.dart';
 
 void main() {
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -14,7 +14,7 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Money Logger',
       theme: ThemeData.dark(),  // Use a dark theme as per your design
-      home: SplashScreen(),  // Set splash screen as the initial screen
+      home: const SplashScreen(),  // Set splash screen as the initial screen
     );
   }
 }

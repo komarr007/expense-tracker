@@ -22,7 +22,7 @@ class HistoryRecord {
   });
 
   Map<String, dynamic> toMap() {
-    return {
+    return <String, dynamic>{
       'id': id,
       'name': name,
       'amount': amount,

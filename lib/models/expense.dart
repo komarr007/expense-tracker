@@ -21,7 +21,7 @@ class Expense {
         updated_at = updated_at ?? DateTime.now();
 
   Map<String, dynamic> toMap() {
-    return {
+    return <String, dynamic>{
       'name': name,
       'amount': amount,
       'spend_date': spend_date.toIso8601String(),

@@ -11,7 +11,7 @@ class HistoryScreen extends StatelessWidget {
   }
 
   Future<void> restoreRecord(BuildContext context, HistoryRecord record) async {
-    final expense = Expense(
+    final Expense expense = Expense(
       name: record.name,
       amount: record.amount,
       spend_date: record.spend_date,
@@ -24,7 +24,7 @@ class HistoryScreen extends StatelessWidget {
     await DBHelper().deleteHistoryRecord(record.id!);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Record restored')),
+      const SnackBar(content: Text('Record restored')),
     );
   }
 
@@ -32,28 +32,28 @@ class HistoryScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('History'),
+        title: const Text('History'),
       ),
       body: FutureBuilder<List<HistoryRecord>>(
         future: fetchHistoryRecords(),
-        builder: (context, snapshot) {
+        builder: (BuildContext context, AsyncSnapshot<List<HistoryRecord>> snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(child: CircularProgressIndicator());
+            return const Center(child: CircularProgressIndicator());
           } else if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return Center(child: Text('No history records found'));
+            return const Center(child: Text('No history records found'));
           } else {
-            final historyRecords = snapshot.data!;
+            final List<HistoryRecord> historyRecords = snapshot.data!;
             return ListView.builder(
               itemCount: historyRecords.length,
-              itemBuilder: (context, index) {
-                final record = historyRecords[index];
+              itemBuilder: (BuildContext context, int index) {
+                final HistoryRecord record = historyRecords[index];
                 return ListTile(
                   title: Text(record.name),
                   subtitle: Text('Deleted at: ${record.deleted_at}'),
                   trailing: IconButton(
-                    icon: Icon(Icons.restore),
+                    icon: const Icon(Icons.restore),
                     onPressed: () => restoreRecord(context, record),
                   ),
                 );

@@ -13,9 +13,9 @@ class ExpenseListScreen extends StatefulWidget {
 }
 
 class _ExpenseListScreenState extends State<ExpenseListScreen> {
-  List<Expense> _expenses = [];
-  List<Expense> _allExpenses = [];
-  final Map<String, List<Expense>> _expensesByMonth = {};
+  List<Expense> _expenses = <Expense>[];
+  List<Expense> _allExpenses = <Expense>[];
+  final Map<String, List<Expense>> _expensesByMonth = <String, List<Expense>>{};
   final NumberFormat _currencyFormat = NumberFormat('#,##0', 'en_US');
   bool _showSearchBar = false;
   bool _filterActive = false;
@@ -28,7 +28,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
   }
 
   void _loadExpenses() async {
-    final expenses = await DBHelper().getExpenses();
+    final List<Expense> expenses = await DBHelper().getExpenses();
     setState(() {
       _allExpenses = expenses;
       _expenses = List.from(_allExpenses);
@@ -38,12 +38,12 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
 
   void _groupExpensesByMonth() {
     _expensesByMonth.clear();
-    for (var expense in _expenses) {
-      final monthKey = DateFormat('MMMM yyyy').format(expense.spend_date);
+    for (Expense expense in _expenses) {
+      final String monthKey = DateFormat('MMMM yyyy').format(expense.spend_date);
       if (_expensesByMonth.containsKey(monthKey)) {
         _expensesByMonth[monthKey]!.add(expense);
       } else {
-        _expensesByMonth[monthKey] = [expense];
+        _expensesByMonth[monthKey] = <Expense>[expense];
       }
     }
   }
@@ -51,7 +51,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
   void _deleteExpense(Expense expense) async {
     if (expense.id != null) {
       // log deletion to history
-      final historyRecord = HistoryRecord(
+      final HistoryRecord historyRecord = HistoryRecord(
         name: expense.name,
         amount: expense.amount,
         spend_date: expense.spend_date,
@@ -66,7 +66,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
       await DBHelper().deleteExpense(expense.id!);
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Record deleted and logged in history')),
+        const SnackBar(content: Text('Record deleted and logged in history')),
       );
     }
     _loadExpenses();
@@ -76,7 +76,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => AddExpenseScreen(expense: expense),
+        builder: (BuildContext context) => AddExpenseScreen(expense: expense),
       ),
     );
     _loadExpenses();
@@ -84,7 +84,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
 
   void _filterExpensesByDate(DateTime startDate, DateTime endDate) {
     setState(() {
-      _expenses = _allExpenses.where((expense) {
+      _expenses = _allExpenses.where((Expense expense) {
         return expense.spend_date.isAfter(startDate) &&
                expense.spend_date.isBefore(endDate);
       }).toList();
@@ -96,7 +96,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
 
   void _searchExpensesByName(String searchTerm) {
     setState(() {
-      _expenses = _allExpenses.where((expense) {
+      _expenses = _allExpenses.where((Expense expense) {
         return expense.name.toLowerCase().contains(searchTerm.toLowerCase());
       }).toList();
       _groupExpensesByMonth();
@@ -113,7 +113,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
   }
 
   void _showFilterDialog() async {
-    DateTime? startDate = await showDatePicker(
+    final DateTime? startDate = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
       firstDate: DateTime(2000),
@@ -122,7 +122,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
 
     if (startDate == null) return;
 
-    DateTime? endDate = await showDatePicker(
+    final DateTime? endDate = await showDatePicker(
       context: context,
       initialDate: startDate,
       firstDate: startDate,
@@ -138,11 +138,11 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Expense Records'),
-        actions: [
+        title: const Text('Expense Records'),
+        actions: <Widget>[
           if (!_showSearchBar)
             IconButton(
-              icon: Icon(Icons.search),
+              icon: const Icon(Icons.search),
               onPressed: () {
                 setState(() {
                   _showSearchBar = true;
@@ -150,27 +150,27 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
               },
             ),
           IconButton(
-            icon: Icon(Icons.filter_list),
+            icon: const Icon(Icons.filter_list),
             onPressed: _showFilterDialog,
           ),
           IconButton(
-            icon: Icon(Icons.more_vert),
+            icon: const Icon(Icons.more_vert),
             onPressed: () {
               showModalBottomSheet(
                 context: context,
-                builder: (context) => _buildBottomSheetMenu(),
+                builder: (BuildContext context) => _buildBottomSheetMenu(),
               );
             },
           ),
         ],
         bottom: _showSearchBar
             ? PreferredSize(
-                preferredSize: Size.fromHeight(56.0),
+                preferredSize: const Size.fromHeight(56.0),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
                   child: TextField(
-                    onChanged: (value) => _searchExpensesByName(value),
-                    decoration: InputDecoration(
+                    onChanged: (String value) => _searchExpensesByName(value),
+                    decoration: const InputDecoration(
                       hintText: 'Search expenses...',
                       border: InputBorder.none,
                     ),
@@ -186,15 +186,15 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
             : null,
       ),
       body: Column(
-        children: [
+        children: <Widget>[
           if (_filterActive)
             Padding(
               padding: const EdgeInsets.all(8.0),
               child: Row(
-                children: [
+                children: <Widget>[
                   Chip(
-                    label: Text("Filter Active: $_filterSummary"),
-                    deleteIcon: Icon(Icons.clear),
+                    label: Text('Filter Active: $_filterSummary'),
+                    deleteIcon: const Icon(Icons.clear),
                     onDeleted: _resetFilters,
                   ),
                 ],
@@ -202,17 +202,17 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
             ),
           Expanded(
             child: ListView(
-              children: _expensesByMonth.keys.map((month) {
+              children: _expensesByMonth.keys.map((String month) {
                 return ExpansionTile(
                   title: Text(
                     month,
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                  children: _expensesByMonth[month]!.map((expense) {
+                  children: _expensesByMonth[month]!.map((Expense expense) {
                     return Dismissible(
                       key: Key(expense.id.toString()),
                       direction: DismissDirection.endToStart,
-                      onDismissed: (direction) {
+                      onDismissed: (DismissDirection direction) {
                         if (direction == DismissDirection.endToStart) {
                           _deleteExpense(expense);
                         }
@@ -220,8 +220,8 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
                       background: Container(
                         alignment: Alignment.centerRight,
                         color: Colors.red,
-                        padding: EdgeInsets.symmetric(horizontal: 20),
-                        child: Icon(Icons.delete, color: Colors.white),
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: const Icon(Icons.delete, color: Colors.white),
                       ),
                       child: ListTile(
                         title: Text(expense.name),
@@ -233,7 +233,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
                         ),
                         isThreeLine: true,
                         trailing: IconButton(
-                          icon: Icon(Icons.more_vert),
+                          icon: const Icon(Icons.more_vert),
                           onPressed: () => _showOptions(context, expense),
                         ),
                       ),
@@ -249,11 +249,11 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
         onPressed: () {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => AddExpenseScreen()),
+            MaterialPageRoute(builder: (BuildContext context) => const AddExpenseScreen()),
           ).then((_) => _loadExpenses());
         },
         backgroundColor: Colors.blue,
-        child: Icon(Icons.add),
+        child: const Icon(Icons.add),
       ),
     );
   }
@@ -261,18 +261,18 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
   Widget _buildBottomSheetMenu() {
     return Column(
       mainAxisSize: MainAxisSize.min,
-      children: [
+      children: <Widget>[
         ListTile(
-          leading: Icon(Icons.filter_list),
-          title: Text('Filter'),
+          leading: const Icon(Icons.filter_list),
+          title: const Text('Filter'),
           onTap: () {
             Navigator.pop(context);
             _showFilterDialog();
           },
         ),
         ListTile(
-          leading: Icon(Icons.search),
-          title: Text('Search'),
+          leading: const Icon(Icons.search),
+          title: const Text('Search'),
           onTap: () {
             Navigator.pop(context);
             setState(() {
@@ -281,8 +281,8 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
           },
         ),
         ListTile(
-          leading: Icon(Icons.clear),
-          title: Text('Reset Filters'),
+          leading: const Icon(Icons.clear),
+          title: const Text('Reset Filters'),
           onTap: () {
             Navigator.pop(context);
             _resetFilters();
@@ -298,18 +298,18 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
       builder: (BuildContext context) {
         return Column(
           mainAxisSize: MainAxisSize.min,
-          children: [
+          children: <Widget>[
             ListTile(
-              leading: Icon(Icons.edit),
-              title: Text('Edit'),
+              leading: const Icon(Icons.edit),
+              title: const Text('Edit'),
               onTap: () {
                 Navigator.pop(context);
                 _editExpense(expense);
               },
             ),
             ListTile(
-              leading: Icon(Icons.delete),
-              title: Text('Delete'),
+              leading: const Icon(Icons.delete),
+              title: const Text('Delete'),
               onTap: () {
                 Navigator.pop(context);
                 _deleteExpense(expense);
