@@ -1,8 +1,11 @@
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
+import '../models/debt.dart';
+import '../models/envelope.dart';
 import '../models/expense.dart';
 import '../models/history_record.dart';
 import '../models/income_record.dart';
+import '../models/net_worth_item.dart';
 import '../models/recurring_expense.dart';
 import 'package:logger/logger.dart';
 
@@ -27,7 +30,7 @@ class DBHelper {
     final String path = join(await getDatabasesPath(), 'expense.db');
     return openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -89,6 +92,42 @@ class DBHelper {
         created_at  TEXT NOT NULL
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE net_worth_items (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL,
+        value       REAL NOT NULL,
+        type        TEXT NOT NULL,
+        is_asset    INTEGER NOT NULL,
+        created_at  TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE envelopes (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        name            TEXT NOT NULL,
+        category        TEXT NOT NULL,
+        monthly_budget  REAL NOT NULL,
+        created_at      TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE debts (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        name             TEXT NOT NULL,
+        original_amount  REAL NOT NULL,
+        current_balance  REAL NOT NULL,
+        interest_rate    REAL NOT NULL DEFAULT 0,
+        minimum_payment  REAL,
+        due_day          INTEGER,
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL
+      )
+    ''');
   }
 
   // ── Migrations ───────────────────────────────────────────────────────────────
@@ -144,6 +183,41 @@ class DBHelper {
           frequency   TEXT NOT NULL,
           next_due    TEXT NOT NULL,
           created_at  TEXT NOT NULL
+        )
+      ''');
+    }
+    if (oldVersion < 5) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS net_worth_items (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          name        TEXT NOT NULL,
+          value       REAL NOT NULL,
+          type        TEXT NOT NULL,
+          is_asset    INTEGER NOT NULL,
+          created_at  TEXT NOT NULL,
+          updated_at  TEXT NOT NULL
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS envelopes (
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          name            TEXT NOT NULL,
+          category        TEXT NOT NULL,
+          monthly_budget  REAL NOT NULL,
+          created_at      TEXT NOT NULL
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS debts (
+          id               INTEGER PRIMARY KEY AUTOINCREMENT,
+          name             TEXT NOT NULL,
+          original_amount  REAL NOT NULL,
+          current_balance  REAL NOT NULL,
+          interest_rate    REAL NOT NULL DEFAULT 0,
+          minimum_payment  REAL,
+          due_day          INTEGER,
+          created_at       TEXT NOT NULL,
+          updated_at       TEXT NOT NULL
         )
       ''');
     }
@@ -350,6 +424,112 @@ class DBHelper {
       case 'monthly': return DateTime(d.year, d.month + 1, d.day);
       default:        return d.add(const Duration(days: 30));
     }
+  }
+
+  // ── Finance queries ──────────────────────────────────────────────────────────
+
+  Future<double> getMonthlyIncomeTotal(int year, int month) async {
+    final db   = await database;
+    final String ym = '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}';
+    final List<Map<String, dynamic>> result = await db.rawQuery(
+      "SELECT COALESCE(SUM(amount), 0) AS total FROM income_records WHERE strftime('%Y-%m', income_date) = ?",
+      <Object>[ym],
+    );
+    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
+  }
+
+  // Returns total amount per expense category for the given month.
+  Future<Map<String, double>> getExpenseCategoryTotals(int year, int month) async {
+    final db = await database;
+    final String ym = '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}';
+    final List<Map<String, dynamic>> rows = await db.rawQuery(
+      "SELECT category, COALESCE(SUM(amount), 0) AS total FROM expenses WHERE strftime('%Y-%m', spend_date) = ? GROUP BY category",
+      <Object>[ym],
+    );
+    return <String, double>{
+      for (final r in rows) r['category'] as String: (r['total'] as num).toDouble(),
+    };
+  }
+
+  // ── Net worth ────────────────────────────────────────────────────────────────
+
+  Future<int> insertNetWorthItem(NetWorthItem item) async {
+    final db = await database;
+    return db.insert('net_worth_items', item.toMap());
+  }
+
+  Future<int> updateNetWorthItem(NetWorthItem item) async {
+    final db = await database;
+    return db.update(
+      'net_worth_items', item.toMap(),
+      where: 'id = ?', whereArgs: <Object?>[item.id],
+    );
+  }
+
+  Future<int> deleteNetWorthItem(int id) async {
+    final db = await database;
+    return db.delete('net_worth_items', where: 'id = ?', whereArgs: <Object?>[id]);
+  }
+
+  Future<List<NetWorthItem>> getNetWorthItems() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps =
+        await db.query('net_worth_items', orderBy: 'is_asset DESC, created_at ASC');
+    return maps.map(NetWorthItem.fromMap).toList();
+  }
+
+  // ── Envelopes ────────────────────────────────────────────────────────────────
+
+  Future<int> insertEnvelope(Envelope envelope) async {
+    final db = await database;
+    return db.insert('envelopes', envelope.toMap());
+  }
+
+  Future<int> updateEnvelope(Envelope envelope) async {
+    final db = await database;
+    return db.update(
+      'envelopes', envelope.toMap(),
+      where: 'id = ?', whereArgs: <Object?>[envelope.id],
+    );
+  }
+
+  Future<int> deleteEnvelope(int id) async {
+    final db = await database;
+    return db.delete('envelopes', where: 'id = ?', whereArgs: <Object?>[id]);
+  }
+
+  Future<List<Envelope>> getEnvelopes() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps =
+        await db.query('envelopes', orderBy: 'created_at ASC');
+    return maps.map(Envelope.fromMap).toList();
+  }
+
+  // ── Debts ────────────────────────────────────────────────────────────────────
+
+  Future<int> insertDebt(Debt debt) async {
+    final db = await database;
+    return db.insert('debts', debt.toMap());
+  }
+
+  Future<int> updateDebt(Debt debt) async {
+    final db = await database;
+    return db.update(
+      'debts', debt.toMap(),
+      where: 'id = ?', whereArgs: <Object?>[debt.id],
+    );
+  }
+
+  Future<int> deleteDebt(int id) async {
+    final db = await database;
+    return db.delete('debts', where: 'id = ?', whereArgs: <Object?>[id]);
+  }
+
+  Future<List<Debt>> getDebts() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps =
+        await db.query('debts', orderBy: 'created_at ASC');
+    return maps.map(Debt.fromMap).toList();
   }
 
   // Closes and nulls the database connection so the next access reopens it fresh.

@@ -66,6 +66,18 @@ abstract final class AppCategories {
     'salary', 'freelance', 'business', 'investment return',
     'bonus', 'gift', 'others',
   ];
+
+  // Maps each expense category to its 50/30/20 bucket.
+  static const Map<String, String> expenseNature = <String, String>{
+    'makan':                  'needs',
+    'health':                 'needs',
+    'mandatory share income': 'needs',
+    'tarik tunai':            'needs',
+    'jajan':                  'wants',
+    'others':                 'wants',
+    'savings':                'savings',
+    'investment':             'savings',
+  };
 }
 
 // ── Theme ─────────────────────────────────────────────────────────────────────

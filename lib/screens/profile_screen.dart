@@ -14,6 +14,7 @@ import '../helpers/db_helper.dart';
 import '../models/expense.dart';
 import '../models/income_record.dart';
 import '../theme/app_theme.dart';
+import 'history_screen.dart';
 import 'recurring_screen.dart';
 
 
@@ -526,6 +527,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       decoration: BoxDecoration(color: AppColors.card, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.divider)),
       child: Column(
         children: <Widget>[
+          _dataAction(icon: Icons.history_rounded, iconColor: AppColors.accent,
+              label: 'Deleted Records', sublabel: 'View recently deleted transactions', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryScreen()))),
+          const Divider(height: 1, indent: 68),
           _dataAction(icon: Icons.backup_rounded, iconColor: const Color(0xFF60A5FA),
               label: 'Backup Database', sublabel: 'Save a copy of the database file', onTap: _exportDatabase),
           const Divider(height: 1, indent: 68),
