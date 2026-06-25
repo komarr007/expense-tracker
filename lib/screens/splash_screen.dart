@@ -149,7 +149,7 @@ class _SplashScreenState extends State<SplashScreen>
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      'Track every rupiah',
+                      'Rigaqi production',
                       style: TextStyle(
                         color: AppColors.textSecondary,
                         fontSize: 14,
