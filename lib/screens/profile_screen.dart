@@ -1,161 +1,484 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
-import 'package:excel/excel.dart';
+import 'package:excel/excel.dart' hide Border;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart';
 import '../helpers/db_helper.dart';
 import '../models/expense.dart';
+import '../theme/app_theme.dart';
+import 'recurring_screen.dart';
 
+const List<String> _kExpenseCategories = <String>[
+  'jajan', 'makan', 'savings', 'investment', 'health',
+  'mandatory share income', 'tarik tunai', 'others',
+];
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
-  // Function to export the database
-  Future<void> _exportDatabase(BuildContext context) async {
-    try {
-      final Directory directory = await getApplicationDocumentsDirectory();
-      final String dbPath = '${directory.parent.path}/databases/expense.db';
-      final File dbFile = File(dbPath);
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
 
-      if (!await dbFile.exists()) {
-        Fluttertoast.showToast(msg: 'No database found!', toastLength: Toast.LENGTH_SHORT, gravity: ToastGravity.BOTTOM);
-        return;
-      }
+class _ProfileScreenState extends State<ProfileScreen> {
+  final TextEditingController _budgetCtrl = TextEditingController();
+  final NumberFormat _fmt =
+      NumberFormat.currency(locale: 'id_ID', symbol: 'Rp', decimalDigits: 0);
 
-      final bool havePermission = await _requestStoragePermission();
-      if (!havePermission) {
-        Fluttertoast.showToast(msg: 'Storage permissions required.', toastLength: Toast.LENGTH_LONG, gravity: ToastGravity.BOTTOM);
-        return;
-      }
+  double _currentBudget = 0.0;
+  Map<String, double> _catBudgets = <String, double>{};
 
-      final String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
-      if (selectedDirectory == null || selectedDirectory.isEmpty) {
-        Fluttertoast.showToast(msg: 'Invalid directory selected.', toastLength: Toast.LENGTH_LONG, gravity: ToastGravity.BOTTOM);
-        return;
-      }
-
-      final String backupPath = '$selectedDirectory/expenses_backup.db';
-      await dbFile.copy(backupPath);
-
-      Fluttertoast.showToast(msg: 'Backup saved: $backupPath', toastLength: Toast.LENGTH_LONG, gravity: ToastGravity.BOTTOM);
-    } catch (e) {
-      Fluttertoast.showToast(msg: 'Backup failed: ${e.toString()}', toastLength: Toast.LENGTH_LONG, gravity: ToastGravity.BOTTOM);
-    }
+  @override
+  void initState() {
+    super.initState();
+    _loadPrefs();
   }
 
+  @override
+  void dispose() {
+    _budgetCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final double b = prefs.getDouble('monthly_budget') ?? 0.0;
+    final String? raw = prefs.getString('category_budgets');
+    final Map<String, double> cats = raw != null
+        ? Map<String, double>.from(
+            (jsonDecode(raw) as Map<String, dynamic>)
+                .map((k, v) => MapEntry(k, (v as num).toDouble())))
+        : <String, double>{};
+    setState(() {
+      _currentBudget  = b;
+      _budgetCtrl.text = b > 0 ? b.toStringAsFixed(0) : '';
+      _catBudgets     = cats;
+    });
+  }
+
+  // ── Monthly budget ─────────────────────────────────────────────────────────
+
+  Future<void> _saveBudget() async {
+    final String raw = _budgetCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (raw.isEmpty) { Fluttertoast.showToast(msg: 'Enter a budget amount first.'); return; }
+    final double b = double.parse(raw);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('monthly_budget', b);
+    setState(() => _currentBudget = b);
+    Fluttertoast.showToast(msg: 'Budget saved: ${_fmt.format(b)}');
+  }
+
+  Future<void> _clearBudget() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('monthly_budget');
+    setState(() { _currentBudget = 0.0; _budgetCtrl.clear(); });
+    Fluttertoast.showToast(msg: 'Budget cleared.');
+  }
+
+  // ── Category budgets ───────────────────────────────────────────────────────
+
+  Future<void> _setCategoryBudget(String cat) async {
+    final existing = _catBudgets[cat];
+    final TextEditingController ctrl = TextEditingController(
+        text: existing != null ? existing.toStringAsFixed(0) : '');
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  alignment: Alignment.center,
+                  child: Container(width: 36, height: 4,
+                      decoration: BoxDecoration(color: AppColors.textMuted, borderRadius: BorderRadius.circular(2)))),
+              Row(
+                children: <Widget>[
+                  Container(width: 10, height: 10,
+                      decoration: BoxDecoration(color: AppColors.category(cat), shape: BoxShape.circle)),
+                  const SizedBox(width: 8),
+                  Text('Budget for $cat',
+                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                inputFormatters: <TextInputFormatter>[FilteringTextInputFormatter.digitsOnly],
+                style: const TextStyle(color: AppColors.textPrimary),
+                decoration: const InputDecoration(
+                  labelText: 'Monthly limit',
+                  prefixText: 'Rp  ',
+                  prefixStyle: TextStyle(color: AppColors.textSecondary, fontSize: 15, fontWeight: FontWeight.w500),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        final String raw2 = ctrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+                        if (raw2.isEmpty) { Navigator.pop(context); return; }
+                        final newBudgets = Map<String, double>.from(_catBudgets);
+                        newBudgets[cat] = double.parse(raw2);
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setString('category_budgets', jsonEncode(newBudgets));
+                        setState(() => _catBudgets = newBudgets);
+                        if (mounted) { Navigator.pop(context); Fluttertoast.showToast(msg: 'Budget set for $cat'); }
+                      },
+                      style: ElevatedButton.styleFrom(minimumSize: const Size(0, 44)),
+                      child: const Text('Save'),
+                    ),
+                  ),
+                  if (existing != null) ...<Widget>[
+                    const SizedBox(width: 10),
+                    OutlinedButton(
+                      onPressed: () async {
+                        final newBudgets = Map<String, double>.from(_catBudgets)..remove(cat);
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setString('category_budgets', jsonEncode(newBudgets));
+                        setState(() => _catBudgets = newBudgets);
+                        if (mounted) { Navigator.pop(context); Fluttertoast.showToast(msg: 'Budget cleared for $cat'); }
+                      },
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.negative,
+                        side: const BorderSide(color: AppColors.negative),
+                        minimumSize: const Size(0, 44),
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                      ),
+                      child: const Text('Clear'),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    ctrl.dispose();
+  }
+
+  // ── Data export ────────────────────────────────────────────────────────────
+
   Future<bool> _requestStoragePermission() async {
-    final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
-    final AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
-
-    if (androidInfo.version.sdkInt <= 35) {
-      if (await Permission.storage.request().isGranted) return true;
-      if (await Permission.manageExternalStorage.request().isGranted) return true;
-      if (await Permission.photos.request().isGranted) return true;
-    } else if (Platform.isIOS) {
-      return true;
-    }
-
+    final info = await DeviceInfoPlugin().androidInfo;
+    // Android 13+ (SDK 33+) removed WRITE_EXTERNAL_STORAGE; SAF/FilePicker
+    // handles directory access natively without a separate permission grant.
+    if (info.version.sdkInt >= 33) return true;
+    if (await Permission.storage.request().isGranted) return true;
+    if (await Permission.manageExternalStorage.request().isGranted) return true;
+    if (await Permission.photos.request().isGranted) return true;
     return false;
   }
 
-  void debugPermissions() async {
-
-    final Map<Permission, PermissionStatus> statuses = await <Permission>[
-      Permission.storage,
-      Permission.manageExternalStorage,
-    ].request();
-
-    statuses.forEach((Permission permission, PermissionStatus status) {
-      print('Permission: $permission, Status: $status');
-    });
+  Future<void> _exportDatabase() async {
+    try {
+      final dir    = await getApplicationDocumentsDirectory();
+      final dbFile = File('${dir.parent.path}/databases/expense.db');
+      if (!await dbFile.exists()) { Fluttertoast.showToast(msg: 'No database found!'); return; }
+      if (!await _requestStoragePermission()) { Fluttertoast.showToast(msg: 'Storage permission required.'); return; }
+      final String? dest = await FilePicker.platform.getDirectoryPath();
+      if (dest == null || dest.isEmpty) { Fluttertoast.showToast(msg: 'No directory selected.'); return; }
+      await dbFile.copy('$dest/expenses_backup.db');
+      Fluttertoast.showToast(msg: 'Backup saved to $dest');
+    } catch (e) { Fluttertoast.showToast(msg: 'Backup failed: $e'); }
   }
-  
-  Future<void> _exportToExcel(BuildContext context) async {
+
+  Future<void> _exportToExcel() async {
     try {
       final List<Expense> expenses = await DBHelper().getExpenses();
-
-      if (expenses.isEmpty) {
-        Fluttertoast.showToast(msg: 'No data to export.');
-        return;
-      }
-
+      if (expenses.isEmpty) { Fluttertoast.showToast(msg: 'No data to export.'); return; }
       final Excel excel = Excel.createExcel();
       final Sheet sheet = excel['Expenses'];
-
-      // Add column headers
       sheet.appendRow(<CellValue?>[
-        TextCellValue('ID'),
-        TextCellValue('Name'),
-        TextCellValue('Amount'),
-        TextCellValue('Date'),
-        TextCellValue('Category'),
+        TextCellValue('ID'), TextCellValue('Name'), TextCellValue('Amount'),
+        TextCellValue('Date'), TextCellValue('Category'), TextCellValue('Notes'),
       ]);
-
-      // Add rows from expense data
-      for (Expense expense in expenses) {
+      for (final e in expenses) {
         sheet.appendRow(<CellValue?>[
-          TextCellValue(expense.id.toString()),
-          TextCellValue(expense.name),
-          TextCellValue(expense.amount.toString()),
-          TextCellValue(expense.spend_date.toIso8601String()), // ✅ Convert DateTime to String
-          TextCellValue(expense.category),
+          TextCellValue(e.id.toString()), TextCellValue(e.name),
+          TextCellValue(e.amount.toString()),
+          TextCellValue(DateFormat('yyyy-MM-dd').format(e.spend_date)),
+          TextCellValue(e.category), TextCellValue(e.notes ?? ''),
         ]);
       }
-
-      final bool havePermission = await _requestStoragePermission();
-      if (!havePermission) {
-        Fluttertoast.showToast(msg: 'Storage permissions required.');
-        return;
-      }
-
-      final String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
-      if (selectedDirectory == null || selectedDirectory.isEmpty) {
-        Fluttertoast.showToast(msg: 'Invalid directory selected.');
-        return;
-      }
-
-      final String filePath = '$selectedDirectory/expenses.xlsx';
-      final File excelFile = File(filePath);
-      await excelFile.writeAsBytes(excel.encode()!);
-
-      Fluttertoast.showToast(msg: 'Excel file saved: $filePath');
-    } catch (e) {
-      Fluttertoast.showToast(msg: 'Export failed: ${e.toString()}');
-    }
+      if (!await _requestStoragePermission()) { Fluttertoast.showToast(msg: 'Storage permission required.'); return; }
+      final String? dest = await FilePicker.platform.getDirectoryPath();
+      if (dest == null || dest.isEmpty) { Fluttertoast.showToast(msg: 'No directory selected.'); return; }
+      await File('$dest/expenses.xlsx').writeAsBytes(excel.encode()!);
+      Fluttertoast.showToast(msg: 'Excel exported to $dest');
+    } catch (e) { Fluttertoast.showToast(msg: 'Export failed: $e'); }
   }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Profile'),
-        backgroundColor: const Color(0xFF1C1C1E),
-      ),
-      body: Center(
+      appBar: AppBar(title: const Text('Profile')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            const Text('Profile Page', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 20),
-            ElevatedButton.icon(
-              onPressed: () => _exportDatabase(context),
-              icon: const Icon(Icons.backup),
-              label: const Text('Backup Data'),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
-            ),
-            ElevatedButton(onPressed: debugPermissions, child: const Text('Debug Permissions')),
-            ElevatedButton.icon(
-              onPressed: () => _exportToExcel(context),
-              icon: const Icon(Icons.file_present),
-              label: const Text('Export to Excel'),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            ),
+            _sectionLabel('MONTHLY BUDGET'),
+            const SizedBox(height: 8),
+            _budgetCard(),
+            const SizedBox(height: 28),
+            _sectionLabel('CATEGORY LIMITS'),
+            const SizedBox(height: 8),
+            _catBudgetsCard(),
+            const SizedBox(height: 28),
+            _sectionLabel('AUTOMATION'),
+            const SizedBox(height: 8),
+            _recurringCard(),
+            const SizedBox(height: 28),
+            _sectionLabel('DATA MANAGEMENT'),
+            const SizedBox(height: 8),
+            _dataCard(),
+            const SizedBox(height: 28),
+            _sectionLabel('APP INFO'),
+            const SizedBox(height: 8),
+            _infoCard(),
           ],
         ),
       ),
     );
   }
+
+  Widget _sectionLabel(String text) => Text(text,
+      style: const TextStyle(color: AppColors.textMuted, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8));
+
+  Widget _budgetCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: AppColors.card, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.divider)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: AppColors.accent.withOpacity(0.15), borderRadius: BorderRadius.circular(10)),
+                child: const Icon(Icons.account_balance_wallet_rounded, color: AppColors.accent, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const Text('Monthly Budget', style: TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.w600)),
+                    Text(
+                      _currentBudget > 0 ? _fmt.format(_currentBudget) : 'Not set',
+                      style: TextStyle(color: _currentBudget > 0 ? AppColors.positive : AppColors.textMuted, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: _budgetCtrl,
+            keyboardType: TextInputType.number,
+            inputFormatters: <TextInputFormatter>[FilteringTextInputFormatter.digitsOnly],
+            style: const TextStyle(color: AppColors.textPrimary),
+            decoration: const InputDecoration(
+              labelText: 'Budget Amount',
+              hintText: 'e.g. 5000000',
+              prefixText: 'Rp  ',
+              prefixStyle: TextStyle(color: AppColors.textSecondary, fontSize: 15, fontWeight: FontWeight.w500),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _saveBudget,
+                  icon: const Icon(Icons.save_rounded, size: 18),
+                  label: const Text('Save'),
+                  style: ElevatedButton.styleFrom(minimumSize: const Size(0, 44)),
+                ),
+              ),
+              if (_currentBudget > 0) ...<Widget>[
+                const SizedBox(width: 10),
+                OutlinedButton(
+                  onPressed: _clearBudget,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.negative,
+                    side: const BorderSide(color: AppColors.negative),
+                    minimumSize: const Size(0, 44),
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                  ),
+                  child: const Text('Clear'),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _catBudgetsCard() {
+    return Container(
+      decoration: BoxDecoration(color: AppColors.card, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.divider)),
+      child: Column(
+        children: _kExpenseCategories.asMap().entries.map((entry) {
+          final String cat    = entry.value;
+          final double? limit = _catBudgets[cat];
+          final bool isLast   = entry.key == _kExpenseCategories.length - 1;
+          return Column(
+            children: <Widget>[
+              InkWell(
+                onTap: () => _setCategoryBudget(cat),
+                borderRadius: isLast
+                    ? const BorderRadius.vertical(bottom: Radius.circular(16))
+                    : BorderRadius.zero,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                  child: Row(
+                    children: <Widget>[
+                      Container(width: 10, height: 10,
+                          decoration: BoxDecoration(color: AppColors.category(cat), shape: BoxShape.circle)),
+                      const SizedBox(width: 10),
+                      Expanded(child: Text(cat, style: const TextStyle(color: AppColors.textPrimary, fontSize: 13))),
+                      Text(
+                        limit != null ? _fmt.format(limit) : 'Not set',
+                        style: TextStyle(
+                          color: limit != null ? AppColors.textSecondary : AppColors.textMuted, fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted, size: 18),
+                    ],
+                  ),
+                ),
+              ),
+              if (!isLast) const Divider(height: 1, indent: 36, endIndent: 0),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _recurringCard() {
+    return InkWell(
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RecurringScreen())),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(color: AppColors.card, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.divider)),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(color: AppColors.accent.withOpacity(0.15), borderRadius: BorderRadius.circular(10)),
+              child: const Icon(Icons.event_repeat_rounded, color: AppColors.accent, size: 20),
+            ),
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text('Recurring Expenses', style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
+                  Text('Auto-add bills & subscriptions', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _dataCard() {
+    return Container(
+      decoration: BoxDecoration(color: AppColors.card, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.divider)),
+      child: Column(
+        children: <Widget>[
+          _dataAction(icon: Icons.backup_rounded, iconColor: const Color(0xFF60A5FA),
+              label: 'Backup Database', sublabel: 'Save a copy of the database file', onTap: _exportDatabase),
+          const Divider(height: 1, indent: 68),
+          _dataAction(icon: Icons.table_chart_outlined, iconColor: AppColors.positive,
+              label: 'Export to Excel', sublabel: 'Download all records as .xlsx', onTap: _exportToExcel, isLast: true),
+        ],
+      ),
+    );
+  }
+
+  Widget _dataAction({required IconData icon, required Color iconColor, required String label, required String sublabel, required VoidCallback onTap, bool isLast = false}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: isLast ? const BorderRadius.vertical(bottom: Radius.circular(16)) : BorderRadius.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(color: iconColor.withOpacity(0.15), borderRadius: BorderRadius.circular(10)),
+              child: Icon(icon, color: iconColor, size: 20),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(label, style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
+                  Text(sublabel, style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _infoCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: AppColors.card, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.divider)),
+      child: Column(
+        children: <Widget>[
+          _infoRow('App Name', 'The Money Logger'),
+          const Divider(height: 20),
+          _infoRow('Version', '1.3.0'),
+          const Divider(height: 20),
+          _infoRow('Data Retention', 'Deleted records kept 14 days'),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(String label, String value) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: <Widget>[
+      Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+      Text(value, style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w500)),
+    ],
+  );
 }

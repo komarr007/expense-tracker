@@ -3,170 +3,301 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../helpers/db_helper.dart';
 import '../models/expense.dart';
+import '../services/notification_service.dart';
+import '../theme/app_theme.dart';
 
 class AddExpenseScreen extends StatefulWidget {
-  final Expense? expense; // Nullable Expense parameter to support editing
-
+  final Expense? expense;
   const AddExpenseScreen({super.key, this.expense});
 
   @override
   _AddExpenseScreenState createState() => _AddExpenseScreenState();
 }
 
-class MoneyInputFormatter extends TextInputFormatter {
-  final NumberFormat _formatter = NumberFormat('#,##0', 'en_US');
+// ── Formats digits as comma-separated thousands (no decimals) ─────────────────
+class _MoneyFormatter extends TextInputFormatter {
+  final NumberFormat _nf = NumberFormat('#,##0', 'en_US');
 
   @override
-  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
-    if (newValue.text.isEmpty) {
-      return newValue.copyWith(text: '');
-    }
-
-    final int selectionIndex = newValue.selection.end;
-    final String formattedText = _formatter.format(int.parse(newValue.text.replaceAll(',', '')));
-    return TextEditingValue(
-      text: formattedText,
-      selection: TextSelection.collapsed(offset: selectionIndex + formattedText.length - newValue.text.length),
+  TextEditingValue formatEditUpdate(
+      TextEditingValue old, TextEditingValue val) {
+    if (val.text.isEmpty) return val.copyWith(text: '');
+    final String raw = val.text.replaceAll(',', '');
+    final int? num = int.tryParse(raw);
+    if (num == null) return old;
+    final String formatted = _nf.format(num);
+    return val.copyWith(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
     );
   }
 }
 
 class _AddExpenseScreenState extends State<AddExpenseScreen> {
+  static const List<String> _categories = <String>[
+    'jajan',
+    'makan',
+    'savings',
+    'investment',
+    'health',
+    'mandatory share income',
+    'tarik tunai',
+    'others',
+  ];
+
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _amountController = TextEditingController();
-  final TextEditingController _spendDateController = TextEditingController();
-  final TextEditingController _categoryController = TextEditingController(); // New category controller
+  final TextEditingController _nameCtrl   = TextEditingController();
+  final TextEditingController _amountCtrl = TextEditingController();
+  final TextEditingController _dateCtrl   = TextEditingController();
+  final TextEditingController _notesCtrl  = TextEditingController();
+  String? _selectedCategory;
+  bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    // If editing an expense, populate the form fields with existing values
     if (widget.expense != null) {
-      _nameController.text = widget.expense!.name;
-      _amountController.text = widget.expense!.amount.toString();
-      _spendDateController.text = widget.expense!.spend_date.toIso8601String();
-      _categoryController.text = widget.expense!.category; // Set existing category
-    }
-  }
-
-  Future<void> _selectDate(BuildContext context) async {
-    final DateTime? pickedDate = await showDatePicker(
-      context: context,
-      initialDate: widget.expense?.spend_date ?? DateTime.now(),
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2101),
-    );
-    if (pickedDate != null) {
-      setState(() {
-        _spendDateController.text = DateFormat('yyyy-MM-dd').format(pickedDate);
-      });
-    }
-  }
-
-  void _saveExpense() {
-    if (_formKey.currentState!.validate()) {
-      final String name = _nameController.text;
-      final double amount = double.parse(_amountController.text.replaceAll(',', ''));
-      final DateTime spendDate = DateTime.parse(_spendDateController.text);
-      final String category = _categoryController.text;
-
-      final Expense newExpense = Expense(
-        name: name,
-        amount: amount,
-        spend_date: spendDate,
-        category: category,
-        created_at: DateTime.now(),
-        updated_at: DateTime.now(),
-      );
-
-      if (widget.expense == null) {
-        DBHelper().insertExpense(newExpense);
-      } else {
-        final Expense updatedExpense = newExpense.copyWith(id: widget.expense!.id);
-        DBHelper().updateExpense(updatedExpense);
-      }
-
-      Navigator.pop(context);
+      final Expense e = widget.expense!;
+      _nameCtrl.text   = e.name;
+      _amountCtrl.text = NumberFormat('#,##0', 'en_US').format(e.amount);
+      _dateCtrl.text   = DateFormat('yyyy-MM-dd').format(e.spend_date);
+      _notesCtrl.text  = e.notes ?? '';
+      final String cat = e.category.toLowerCase();
+      _selectedCategory =
+          _categories.contains(cat) ? cat : _categories.last;
+    } else {
+      _dateCtrl.text    = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      _selectedCategory = _categories.first;
     }
   }
 
   @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _amountCtrl.dispose();
+    _dateCtrl.dispose();
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final DateTime? picked = await showDatePicker(
+      context:     context,
+      initialDate: widget.expense?.spend_date ?? DateTime.now(),
+      firstDate:   DateTime(2000),
+      lastDate:    DateTime(2101),
+      builder: (ctx, child) => Theme(
+        data: Theme.of(ctx).copyWith(
+          colorScheme: const ColorScheme.dark(
+            primary:   AppColors.accent,
+            onPrimary: Colors.white,
+            surface:   AppColors.card,
+            onSurface: AppColors.textPrimary,
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) {
+      setState(() => _dateCtrl.text = DateFormat('yyyy-MM-dd').format(picked));
+    }
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+
+    final double amount =
+        double.parse(_amountCtrl.text.replaceAll(',', ''));
+
+    final Expense expense = Expense(
+      name:       _nameCtrl.text.trim(),
+      amount:     amount,
+      spend_date: DateTime.parse(_dateCtrl.text),
+      category:   _selectedCategory!,
+      notes:      _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      created_at: DateTime.now(),
+      updated_at: DateTime.now(),
+    );
+
+    if (widget.expense == null) {
+      await DBHelper().insertExpense(expense);
+      NotificationService().checkBudgets(expense);
+    } else {
+      await DBHelper().updateExpense(expense.copyWith(id: widget.expense!.id));
+    }
+
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final bool isEdit = widget.expense != null;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.expense == null ? 'Add Expense' : 'Edit Expense'),
+        title: Text(isEdit ? 'Edit Expense' : 'Add Expense'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: <Widget>[
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Name'),
-                validator: (String? value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter a name';
-                  }
-                  return null;
-                },
-              ),
-              TextFormField(
-                controller: _amountController,
-                keyboardType: TextInputType.number,
-                inputFormatters: <TextInputFormatter>[
-                  FilteringTextInputFormatter.digitsOnly,
-                  MoneyInputFormatter(),
-                ],
-                decoration: const InputDecoration(
-                  labelText: 'Amount',
-                  hintText: 'Enter amount',
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+
+                // ── Name ─────────────────────────────────────────
+                _label('Expense Name'),
+                const SizedBox(height: 6),
+                TextFormField(
+                  controller: _nameCtrl,
+                  textCapitalization: TextCapitalization.sentences,
+                  style: const TextStyle(color: AppColors.textPrimary),
+                  decoration: const InputDecoration(
+                    hintText: 'e.g. Lunch at warung',
+                    prefixIcon: Icon(Icons.label_outline_rounded,
+                        size: 20, color: AppColors.textMuted),
+                  ),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Name is required' : null,
                 ),
-                validator: (String? value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter an amount';
-                  }
-                  return null;
-                },
-              ),
-              TextFormField(
-                controller: _spendDateController,
-                decoration: const InputDecoration(
-                  labelText: 'Spend Date',
-                  hintText: 'Enter spend date',
+
+                const SizedBox(height: 16),
+
+                // ── Amount ────────────────────────────────────────
+                _label('Amount'),
+                const SizedBox(height: 6),
+                TextFormField(
+                  controller: _amountCtrl,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(color: AppColors.textPrimary),
+                  inputFormatters: <TextInputFormatter>[
+                    FilteringTextInputFormatter.digitsOnly,
+                    _MoneyFormatter(),
+                  ],
+                  decoration: const InputDecoration(
+                    hintText: '0',
+                    prefixIcon: Icon(Icons.payments_outlined,
+                        size: 20, color: AppColors.textMuted),
+                    prefix: Text(
+                      'Rp  ',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  validator: (v) =>
+                      (v == null || v.isEmpty) ? 'Amount is required' : null,
                 ),
-                onTap: () async {
-                  FocusScope.of(context).requestFocus(FocusNode());
-                  await _selectDate(context);
-                },
-                validator: (String? value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter a spend date';
-                  }
-                  return null;
-                },
-              ),
-              TextFormField(
-                controller: _categoryController,
-                decoration: const InputDecoration(labelText: 'Category'),
-                validator: (String? value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter a category';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _saveExpense,
-                child: const Text('Save'),
-              ),
-            ],
+
+                const SizedBox(height: 16),
+
+                // ── Date ──────────────────────────────────────────
+                _label('Date'),
+                const SizedBox(height: 6),
+                TextFormField(
+                  controller: _dateCtrl,
+                  readOnly: true,
+                  onTap: _pickDate,
+                  style: const TextStyle(color: AppColors.textPrimary),
+                  decoration: const InputDecoration(
+                    hintText: 'Select date',
+                    prefixIcon: Icon(Icons.calendar_month_outlined,
+                        size: 20, color: AppColors.textMuted),
+                    suffixIcon:
+                        Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+                  ),
+                  validator: (v) =>
+                      (v == null || v.isEmpty) ? 'Date is required' : null,
+                ),
+
+                const SizedBox(height: 16),
+
+                // ── Category ──────────────────────────────────────
+                _label('Category'),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: _selectedCategory,
+                  dropdownColor: AppColors.card,
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                  icon: const Icon(Icons.expand_more_rounded,
+                      color: AppColors.textMuted),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.category_outlined,
+                        size: 20, color: AppColors.textMuted),
+                  ),
+                  items: _categories.map((String cat) {
+                    final Color c = AppColors.category(cat);
+                    return DropdownMenuItem<String>(
+                      value: cat,
+                      child: Row(
+                        children: <Widget>[
+                          Container(
+                            width: 10,
+                            height: 10,
+                            decoration:
+                                BoxDecoration(color: c, shape: BoxShape.circle),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(cat),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (v) => setState(() => _selectedCategory = v),
+                  validator: (v) =>
+                      (v == null || v.isEmpty) ? 'Category is required' : null,
+                ),
+
+                const SizedBox(height: 16),
+
+                // ── Notes ─────────────────────────────────────────
+                _label('Notes (optional)'),
+                const SizedBox(height: 6),
+                TextFormField(
+                  controller: _notesCtrl,
+                  maxLines: 3,
+                  textCapitalization: TextCapitalization.sentences,
+                  style: const TextStyle(color: AppColors.textPrimary),
+                  decoration: const InputDecoration(
+                    hintText: 'Any extra details…',
+                    alignLabelWithHint: true,
+                  ),
+                ),
+
+                const SizedBox(height: 32),
+
+                // ── Save button ───────────────────────────────────
+                ElevatedButton.icon(
+                  onPressed: _saving ? null : _save,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : Icon(isEdit
+                          ? Icons.check_rounded
+                          : Icons.add_circle_outline_rounded),
+                  label: Text(isEdit ? 'Save Changes' : 'Add Expense'),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
+
+  Widget _label(String text) => Text(
+        text,
+        style: const TextStyle(
+          color: AppColors.textSecondary,
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+        ),
+      );
 }

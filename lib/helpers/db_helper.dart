@@ -2,6 +2,8 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/expense.dart';
 import '../models/history_record.dart';
+import '../models/income_record.dart';
+import '../models/recurring_expense.dart';
 import 'package:logger/logger.dart';
 
 class DBHelper {
@@ -9,213 +11,378 @@ class DBHelper {
   static Database? _database;
   final Logger logger = Logger();
 
-  factory DBHelper() {
-    return _instance;
-  }
-
+  factory DBHelper() => _instance;
   DBHelper._internal();
-
-  // Add a named constructor for testing purposes
   DBHelper.test({Database? database}) {
     _database = database;
   }
-  
+
   Future<Database> get database async {
     if (_database != null) return _database!;
-
     _database = await _initDatabase();
     return _database!;
   }
 
   Future<Database> _initDatabase() async {
     final String path = join(await getDatabasesPath(), 'expense.db');
-    return await openDatabase(
+    return openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _onCreate,
-      onUpgrade: _onUpgrade, // Add onUpgrade method for migrations
+      onUpgrade: _onUpgrade,
     );
   }
 
-  Future _onCreate(Database db, int version) async {
+  // ── Schema creation (fresh install) ─────────────────────────────────────────
+
+  Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
       CREATE TABLE expenses (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT,
-        amount REAL,
-        spend_date TEXT,
-        created_at TEXT,
-        updated_at TEXT,
-        user_id TEXT,
-        category TEXT  -- New category field
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT,
+        amount      REAL,
+        spend_date  TEXT,
+        created_at  TEXT,
+        updated_at  TEXT,
+        user_id     TEXT,
+        category    TEXT,
+        notes       TEXT
       )
     ''');
 
     await db.execute('''
       CREATE TABLE history_records (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT,
-        amount REAL,
-        spend_date TEXT,
-        created_at TEXT,
-        updated_at TEXT,
-        user_id TEXT,
-        category TEXT,
-        deleted_at TEXT
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT,
+        amount      REAL,
+        spend_date  TEXT,
+        created_at  TEXT,
+        updated_at  TEXT,
+        user_id     TEXT,
+        category    TEXT,
+        notes       TEXT,
+        deleted_at  TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE income_records (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL,
+        amount      REAL NOT NULL,
+        income_date TEXT NOT NULL,
+        category    TEXT NOT NULL,
+        notes       TEXT,
+        created_at  TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE recurring_expenses (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL,
+        amount      REAL NOT NULL,
+        category    TEXT NOT NULL,
+        notes       TEXT,
+        frequency   TEXT NOT NULL,
+        next_due    TEXT NOT NULL,
+        created_at  TEXT NOT NULL
       )
     ''');
   }
 
+  // ── Migrations ───────────────────────────────────────────────────────────────
+
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
-      // Add the category column for users upgrading from version 1
       await db.execute('ALTER TABLE expenses ADD COLUMN category TEXT');
     }
     if (oldVersion < 3) {
       await db.execute('''
         CREATE TABLE history_records (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT,
-          amount REAL,
-          spend_date TEXT,
-          created_at TEXT,
-          updated_at TEXT,
-          user_id TEXT,
-          category TEXT,
-          deleted_at TEXT
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          name        TEXT,
+          amount      REAL,
+          spend_date  TEXT,
+          created_at  TEXT,
+          updated_at  TEXT,
+          user_id     TEXT,
+          category    TEXT,
+          deleted_at  TEXT
+        )
+      ''');
+    }
+    if (oldVersion < 4) {
+      // Add notes to expenses
+      try {
+        await db.execute('ALTER TABLE expenses ADD COLUMN notes TEXT');
+      } catch (_) {}
+      // Add notes to history_records
+      try {
+        await db.execute('ALTER TABLE history_records ADD COLUMN notes TEXT');
+      } catch (_) {}
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS income_records (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          name        TEXT NOT NULL,
+          amount      REAL NOT NULL,
+          income_date TEXT NOT NULL,
+          category    TEXT NOT NULL,
+          notes       TEXT,
+          created_at  TEXT NOT NULL
+        )
+      ''');
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS recurring_expenses (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          name        TEXT NOT NULL,
+          amount      REAL NOT NULL,
+          category    TEXT NOT NULL,
+          notes       TEXT,
+          frequency   TEXT NOT NULL,
+          next_due    TEXT NOT NULL,
+          created_at  TEXT NOT NULL
         )
       ''');
     }
   }
 
-  Future<int> insertExpense(Expense expense) async {
-    final Database db = await database;
-    return await db.insert('expenses', expense.toMap());
-  }
+  // ── Expenses ─────────────────────────────────────────────────────────────────
 
-  Future<int> deleteExpense(int id) async {
-    final Database db = await database;
-    return await db.delete(
-      'expenses',
-      where: 'id = ?',
-      whereArgs: <Object?>[id],
-    );
+  Future<int> insertExpense(Expense expense) async {
+    final db = await database;
+    return db.insert('expenses', expense.toMap());
   }
 
   Future<int> updateExpense(Expense expense) async {
-    final Database db = await database;
-    return await db.update(
-      'expenses',
-      expense.toMap(),
-      where: 'id = ?',
-      whereArgs: <Object?>[expense.id],
+    final db = await database;
+    return db.update(
+      'expenses', expense.toMap(),
+      where: 'id = ?', whereArgs: <Object?>[expense.id],
     );
+  }
+
+  Future<int> deleteExpense(int id) async {
+    final db = await database;
+    return db.delete('expenses', where: 'id = ?', whereArgs: <Object?>[id]);
+  }
+
+  // Atomically moves an expense to history_records and deletes it from expenses.
+  // Using a transaction prevents phantom duplicates if one step fails.
+  Future<void> softDeleteExpense(Expense expense) async {
+    final db = await database;
+    final HistoryRecord record = HistoryRecord(
+      name:       expense.name,
+      amount:     expense.amount,
+      spend_date: expense.spend_date,
+      created_at: expense.created_at,
+      updated_at: expense.updated_at,
+      category:   expense.category,
+      notes:      expense.notes,
+      deleted_at: DateTime.now(),
+    );
+    await db.transaction((txn) async {
+      await txn.insert('history_records', record.toMap());
+      await txn.delete('expenses', where: 'id = ?', whereArgs: <Object?>[expense.id]);
+    });
+  }
+
+  // Returns the sum of expenses for a given year+month without loading all rows.
+  Future<double> getMonthlyExpenseTotal(int year, int month) async {
+    final db   = await database;
+    final String ym = '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}';
+    final List<Map<String, dynamic>> result = await db.rawQuery(
+      "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE strftime('%Y-%m', spend_date) = ?",
+      <Object>[ym],
+    );
+    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
+  }
+
+  // Returns the sum of expenses for a given year+month+category.
+  Future<double> getCategoryMonthlyTotal(int year, int month, String category) async {
+    final db   = await database;
+    final String ym = '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}';
+    final List<Map<String, dynamic>> result = await db.rawQuery(
+      "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE strftime('%Y-%m', spend_date) = ? AND category = ?",
+      <Object>[ym, category],
+    );
+    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
   }
 
   Future<List<Expense>> getExpenses() async {
-    final Database db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('expenses');
-
-    return List.generate(maps.length, (int i) {
-      return Expense(
-        id: maps[i]['id'],
-        name: maps[i]['name'],
-        amount: maps[i]['amount'],
-        spend_date: DateTime.parse(maps[i]['spend_date']),
-        created_at: DateTime.parse(maps[i]['created_at']),
-        updated_at: DateTime.parse(maps[i]['updated_at']),
-        category: maps[i]['category'] ?? 'Uncategorized', // Handle null category
-      );
-    });
+    final db = await database;
+    final List<Map<String, dynamic>> maps =
+        await db.query('expenses', orderBy: 'spend_date DESC');
+    return maps.map(Expense.fromMap).toList();
   }
+
+  // ── History records ──────────────────────────────────────────────────────────
 
   Future<int> insertHistoryRecord(HistoryRecord record) async {
-    final Database db = await database;
-    return await db.insert('history_records', record.toMap());
-  }
-
-  Future<List<HistoryRecord>> getHistoryRecords() async {
-    final Database db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('history_records');
-
-    return List.generate(maps.length, (int i) {
-      return HistoryRecord(
-        id: maps[i]['id'],
-        name: maps[i]['name'],
-        amount: maps[i]['amount'],
-        spend_date: DateTime.parse(maps[i]['spend_date']),
-        created_at: DateTime.parse(maps[i]['created_at']),
-        updated_at: DateTime.parse(maps[i]['updated_at']),
-        category: maps[i]['category'],
-        deleted_at: DateTime.parse(maps[i]['deleted_at']),
-      );
-    });
+    final db = await database;
+    return db.insert('history_records', record.toMap());
   }
 
   Future<int> deleteHistoryRecord(int id) async {
-    final Database db = await database;
-    return await db.delete(
-      'history_records',
-      where: 'id = ?',
-      whereArgs: <Object?>[id],
+    final db = await database;
+    return db.delete(
+      'history_records', where: 'id = ?', whereArgs: <Object?>[id],
     );
+  }
+
+  Future<List<HistoryRecord>> getHistoryRecords() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps =
+        await db.query('history_records', orderBy: 'deleted_at DESC');
+    return maps.map(HistoryRecord.fromMap).toList();
   }
 
   Future<void> deleteOldHistoryRecords() async {
-    final Database db = await database;
-    final String twoWeeksAgo = DateTime.now().subtract(const Duration(days: 14)).toIso8601String();
+    final db = await database;
+    final String cutoff =
+        DateTime.now().subtract(const Duration(days: 14)).toIso8601String();
     await db.delete(
-      'history_records',
-      where: 'deleted_at < ?',
-      whereArgs: <Object?>[twoWeeksAgo],
+      'history_records', where: 'deleted_at < ?', whereArgs: <Object?>[cutoff],
     );
   }
 
-  Future<void> importExistingData(String etlDbPath) async {
-    // Open the existing database
-    final Database etlDb = await openDatabase(etlDbPath);
+  // ── Income records ───────────────────────────────────────────────────────────
 
-    // Get all expense tables dynamically
-    final List<Map<String, dynamic>> tables = await etlDb.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'expenses%';"
+  Future<int> insertIncome(IncomeRecord record) async {
+    final db = await database;
+    return db.insert('income_records', record.toMap());
+  }
+
+  Future<int> updateIncome(IncomeRecord record) async {
+    final db = await database;
+    return db.update(
+      'income_records', record.toMap(),
+      where: 'id = ?', whereArgs: <Object?>[record.id],
     );
+  }
 
-    if (tables.isEmpty) {
-      return;
+  Future<int> deleteIncome(int id) async {
+    final db = await database;
+    return db.delete(
+      'income_records', where: 'id = ?', whereArgs: <Object?>[id],
+    );
+  }
+
+  Future<List<IncomeRecord>> getIncomeRecords() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps =
+        await db.query('income_records', orderBy: 'income_date DESC');
+    return maps.map(IncomeRecord.fromMap).toList();
+  }
+
+  // ── Recurring expenses ───────────────────────────────────────────────────────
+
+  Future<int> insertRecurring(RecurringExpense r) async {
+    final db = await database;
+    return db.insert('recurring_expenses', r.toMap());
+  }
+
+  Future<int> updateRecurring(RecurringExpense r) async {
+    final db = await database;
+    return db.update(
+      'recurring_expenses', r.toMap(),
+      where: 'id = ?', whereArgs: <Object?>[r.id],
+    );
+  }
+
+  Future<int> deleteRecurring(int id) async {
+    final db = await database;
+    return db.delete(
+      'recurring_expenses', where: 'id = ?', whereArgs: <Object?>[id],
+    );
+  }
+
+  Future<List<RecurringExpense>> getRecurringExpenses() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps =
+        await db.query('recurring_expenses', orderBy: 'next_due ASC');
+    return maps.map(RecurringExpense.fromMap).toList();
+  }
+
+  /// Auto-insert expense records for all overdue recurring templates.
+  /// Catches up on missed cycles (e.g. after not opening the app for a month).
+  Future<int> processRecurringExpenses() async {
+    final db   = await database;
+    final now  = DateTime.now();
+    int created = 0;
+
+    final List<Map<String, dynamic>> rows =
+        await db.query('recurring_expenses');
+
+    for (final row in rows) {
+      DateTime nextDue = DateTime.parse(row['next_due'] as String);
+
+      while (!nextDue.isAfter(now)) {
+        await db.insert('expenses', <String, dynamic>{
+          'name':       row['name'],
+          'amount':     row['amount'],
+          'spend_date': nextDue.toIso8601String(),
+          'created_at': now.toIso8601String(),
+          'updated_at': now.toIso8601String(),
+          'category':   row['category'],
+          'notes':      row['notes'],
+        });
+        created++;
+        nextDue = _advance(nextDue, row['frequency'] as String);
+      }
+
+      await db.update(
+        'recurring_expenses',
+        <String, dynamic>{'next_due': nextDue.toIso8601String()},
+        where: 'id = ?', whereArgs: <Object?>[row['id']],
+      );
     }
 
-    // Open the app database
+    return created;
+  }
+
+  DateTime _advance(DateTime d, String frequency) {
+    switch (frequency) {
+      case 'daily':   return d.add(const Duration(days: 1));
+      case 'weekly':  return d.add(const Duration(days: 7));
+      case 'monthly': return DateTime(d.year, d.month + 1, d.day);
+      default:        return d.add(const Duration(days: 30));
+    }
+  }
+
+  // ── ETL import ───────────────────────────────────────────────────────────────
+
+  Future<void> importExistingData(String etlDbPath) async {
+    final Database etlDb = await openDatabase(etlDbPath);
+    final List<Map<String, dynamic>> tables = await etlDb.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'expenses%';",
+    );
+    if (tables.isEmpty) { await etlDb.close(); return; }
+
     final Database appDb = await database;
-
-    for (Map<String, dynamic> table in tables) {
+    for (final table in tables) {
       final tableName = table['name'];
-
-      // Query data from the current existing table
-      final List<Map<String, dynamic>> etlData = await etlDb.query(tableName);
-
-      // Insert data into the app database
-      for (Map<String, dynamic> record in etlData) {
-        final Map<String, dynamic> appRecord = <String, dynamic>{
-          'id': record['id'],  // Primary key (can be null to auto-generate)
-          'name': record['name'],
-          'amount': record['amount']?.toDouble(),
-          'spend_date': record['spend_date'],
-          'created_at': record['created_at'],
-          'updated_at': record['updated_at'],
-          'user_id': record['user_id'],
-          'category': record['category'] ?? 'Uncategorized',
-        };
-
-        // Insert into the app database
+      final List<Map<String, dynamic>> rows = await etlDb.query(tableName);
+      for (final record in rows) {
         try {
-          await appDb.insert('expenses', appRecord, conflictAlgorithm: ConflictAlgorithm.replace);
-        } catch (e, stackTrace) {
-          logger.e('An error occurred', error: e, stackTrace: stackTrace);
+          await appDb.insert('expenses', <String, dynamic>{
+            'id':         record['id'],
+            'name':       record['name'],
+            'amount':     record['amount']?.toDouble(),
+            'spend_date': record['spend_date'],
+            'created_at': record['created_at'],
+            'updated_at': record['updated_at'],
+            'user_id':    record['user_id'],
+            'category':   record['category'] ?? 'others',
+            'notes':      null,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        } catch (e, st) {
+          logger.e('ETL import row error', error: e, stackTrace: st);
         }
       }
     }
-
-    // Close the existing database
     await etlDb.close();
   }
 }
