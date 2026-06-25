@@ -188,6 +188,90 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return false;
   }
 
+  Future<void> _restoreDatabase() async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Restore from Backup'),
+        content: const Text(
+          'This will replace ALL current data with the selected backup.\n\n'
+          'This cannot be undone. Continue?',
+        ),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Restore', style: TextStyle(color: AppColors.negative)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      if (!await _requestStoragePermission()) {
+        Fluttertoast.showToast(msg: 'Storage permission required.');
+        return;
+      }
+
+      final FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: <String>['db'],
+      );
+      if (result == null || result.files.single.path == null) return;
+
+      final File src = File(result.files.single.path!);
+
+      // Verify the file is a real SQLite database by checking its 16-byte magic header.
+      final RandomAccessFile raf = await src.open();
+      final List<int> header = await raf.read(16);
+      await raf.close();
+      const List<int> _sqliteMagic = <int>[
+        83, 81, 76, 105, 116, 101, 32, 102, 111, 114, 109, 97, 116, 32, 51, 0,
+      ]; // "SQLite format 3\0"
+      for (int i = 0; i < _sqliteMagic.length; i++) {
+        if (i >= header.length || header[i] != _sqliteMagic[i]) {
+          Fluttertoast.showToast(msg: 'Not a valid database file.');
+          return;
+        }
+      }
+
+      // Close the live connection before replacing the file on disk.
+      await DBHelper().resetDatabase();
+
+      final Directory appDir = await getApplicationDocumentsDirectory();
+      final String dbPath = '${appDir.parent.path}/databases/expense.db';
+      await src.copy(dbPath);
+
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Restore Complete'),
+          content: const Text(
+            'Your backup has been restored.\n\n'
+            'Tap "Exit App" and reopen to see the restored data.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                SystemNavigator.pop();
+              },
+              child: const Text('Exit App'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Later'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      Fluttertoast.showToast(msg: 'Restore failed: $e');
+    }
+  }
+
   Future<void> _exportDatabase() async {
     try {
       final dir    = await getApplicationDocumentsDirectory();
@@ -420,6 +504,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: <Widget>[
           _dataAction(icon: Icons.backup_rounded, iconColor: const Color(0xFF60A5FA),
               label: 'Backup Database', sublabel: 'Save a copy of the database file', onTap: _exportDatabase),
+          const Divider(height: 1, indent: 68),
+          _dataAction(icon: Icons.restore_rounded, iconColor: AppColors.warning,
+              label: 'Restore from Backup', sublabel: 'Replace data from a .db backup file', onTap: _restoreDatabase),
           const Divider(height: 1, indent: 68),
           _dataAction(icon: Icons.table_chart_outlined, iconColor: AppColors.positive,
               label: 'Export to Excel', sublabel: 'Download all records as .xlsx', onTap: _exportToExcel, isLast: true),

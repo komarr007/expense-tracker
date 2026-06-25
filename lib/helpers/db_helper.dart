@@ -352,37 +352,12 @@ class DBHelper {
     }
   }
 
-  // ── ETL import ───────────────────────────────────────────────────────────────
-
-  Future<void> importExistingData(String etlDbPath) async {
-    final Database etlDb = await openDatabase(etlDbPath);
-    final List<Map<String, dynamic>> tables = await etlDb.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'expenses%';",
-    );
-    if (tables.isEmpty) { await etlDb.close(); return; }
-
-    final Database appDb = await database;
-    for (final table in tables) {
-      final tableName = table['name'];
-      final List<Map<String, dynamic>> rows = await etlDb.query(tableName);
-      for (final record in rows) {
-        try {
-          await appDb.insert('expenses', <String, dynamic>{
-            'id':         record['id'],
-            'name':       record['name'],
-            'amount':     record['amount']?.toDouble(),
-            'spend_date': record['spend_date'],
-            'created_at': record['created_at'],
-            'updated_at': record['updated_at'],
-            'user_id':    record['user_id'],
-            'category':   record['category'] ?? 'others',
-            'notes':      null,
-          }, conflictAlgorithm: ConflictAlgorithm.replace);
-        } catch (e, st) {
-          logger.e('ETL import row error', error: e, stackTrace: st);
-        }
-      }
+  // Closes and nulls the database connection so the next access reopens it fresh.
+  // Call this before replacing the database file on disk (e.g. restore from backup).
+  Future<void> resetDatabase() async {
+    if (_database != null) {
+      await _database!.close();
+      _database = null;
     }
-    await etlDb.close();
   }
 }
