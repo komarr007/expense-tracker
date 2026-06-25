@@ -466,7 +466,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: <Widget>[
           _infoRow('App Name', 'The Money Logger'),
           const Divider(height: 20),
-          _infoRow('Version', '1.3.0'),
+          _infoRow('Version', '1.3.0 (build 5)'),
           const Divider(height: 20),
           _infoRow('Data Retention', 'Deleted records kept 14 days'),
         ],
