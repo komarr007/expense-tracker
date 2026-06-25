@@ -1,11 +1,11 @@
 {
-    "name": "the_money_logger",
-    "short_name": "the_money_logger",
+    "name": "The Money Logger",
+    "short_name": "Money Logger",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#hexcode",
-    "theme_color": "#hexcode",
-    "description": "A new Flutter project.",
+    "background_color": "#0D0D1A",
+    "theme_color": "#1E1B4B",
+    "description": "Personal money logger — track expenses, income, budgets, and financial health.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
