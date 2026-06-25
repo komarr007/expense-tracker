@@ -5,7 +5,7 @@ import 'screens/splash_screen.dart';
 import 'theme/app_theme.dart';
 
 void main() {
-  // Silence all log output in production builds.
+  WidgetsFlutterBinding.ensureInitialized();
   if (kReleaseMode) Logger.level = Level.off;
   runApp(const MyApp());
 }

@@ -7,8 +7,6 @@
         android:maxSdkVersion="32"/>
     <!-- Budget alert notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <!-- Reschedule notifications after device reboot -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
     <application
         android:label="The Money Logger"

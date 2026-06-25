@@ -55,6 +55,19 @@ abstract final class AppColors {
   }
 }
 
+// ── Category lists ────────────────────────────────────────────────────────────
+
+abstract final class AppCategories {
+  static const List<String> expense = <String>[
+    'jajan', 'makan', 'savings', 'investment', 'health',
+    'mandatory share income', 'tarik tunai', 'others',
+  ];
+  static const List<String> income = <String>[
+    'salary', 'freelance', 'business', 'investment return',
+    'bonus', 'gift', 'others',
+  ];
+}
+
 // ── Theme ─────────────────────────────────────────────────────────────────────
 
 abstract final class AppTheme {

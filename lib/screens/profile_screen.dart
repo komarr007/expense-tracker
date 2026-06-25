@@ -12,13 +12,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import '../helpers/db_helper.dart';
 import '../models/expense.dart';
+import '../models/income_record.dart';
 import '../theme/app_theme.dart';
 import 'recurring_screen.dart';
 
-const List<String> _kExpenseCategories = <String>[
-  'jajan', 'makan', 'savings', 'investment', 'health',
-  'mandatory share income', 'tarik tunai', 'others',
-];
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -287,27 +284,54 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _exportToExcel() async {
     try {
-      final List<Expense> expenses = await DBHelper().getExpenses();
-      if (expenses.isEmpty) { Fluttertoast.showToast(msg: 'No data to export.'); return; }
+      final List<Expense>      expenses = await DBHelper().getExpenses();
+      final List<IncomeRecord> income   = await DBHelper().getIncomeRecords();
+      if (expenses.isEmpty && income.isEmpty) {
+        Fluttertoast.showToast(msg: 'No data to export.');
+        return;
+      }
+
       final Excel excel = Excel.createExcel();
-      final Sheet sheet = excel['Expenses'];
-      sheet.appendRow(<CellValue?>[
+
+      // ── Expenses sheet ────────────────────────────────────────────────────
+      final Sheet expSheet = excel['Expenses'];
+      expSheet.appendRow(<CellValue?>[
         TextCellValue('ID'), TextCellValue('Name'), TextCellValue('Amount'),
         TextCellValue('Date'), TextCellValue('Category'), TextCellValue('Notes'),
       ]);
       for (final e in expenses) {
-        sheet.appendRow(<CellValue?>[
+        expSheet.appendRow(<CellValue?>[
           TextCellValue(e.id.toString()), TextCellValue(e.name),
-          TextCellValue(e.amount.toString()),
+          DoubleCellValue(e.amount),
           TextCellValue(DateFormat('yyyy-MM-dd').format(e.spend_date)),
           TextCellValue(e.category), TextCellValue(e.notes ?? ''),
         ]);
       }
+
+      // ── Income sheet ──────────────────────────────────────────────────────
+      final Sheet incSheet = excel['Income'];
+      incSheet.appendRow(<CellValue?>[
+        TextCellValue('ID'), TextCellValue('Name'), TextCellValue('Amount'),
+        TextCellValue('Date'), TextCellValue('Category'), TextCellValue('Notes'),
+      ]);
+      for (final r in income) {
+        incSheet.appendRow(<CellValue?>[
+          TextCellValue(r.id.toString()), TextCellValue(r.name),
+          DoubleCellValue(r.amount),
+          TextCellValue(DateFormat('yyyy-MM-dd').format(r.income_date)),
+          TextCellValue(r.category), TextCellValue(r.notes ?? ''),
+        ]);
+      }
+
+      // Remove the default empty sheet the library creates
+      excel.delete('Sheet1');
+
       if (!await _requestStoragePermission()) { Fluttertoast.showToast(msg: 'Storage permission required.'); return; }
       final String? dest = await FilePicker.platform.getDirectoryPath();
       if (dest == null || dest.isEmpty) { Fluttertoast.showToast(msg: 'No directory selected.'); return; }
-      await File('$dest/expenses.xlsx').writeAsBytes(excel.encode()!);
-      Fluttertoast.showToast(msg: 'Excel exported to $dest');
+      final String filename = 'money_logger_${DateFormat('yyyyMMdd').format(DateTime.now())}.xlsx';
+      await File('$dest/$filename').writeAsBytes(excel.encode()!);
+      Fluttertoast.showToast(msg: 'Exported $filename to $dest');
     } catch (e) { Fluttertoast.showToast(msg: 'Export failed: $e'); }
   }
 
@@ -427,10 +451,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Container(
       decoration: BoxDecoration(color: AppColors.card, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.divider)),
       child: Column(
-        children: _kExpenseCategories.asMap().entries.map((entry) {
+        children: AppCategories.expense.asMap().entries.map((entry) {
           final String cat    = entry.value;
           final double? limit = _catBudgets[cat];
-          final bool isLast   = entry.key == _kExpenseCategories.length - 1;
+          final bool isLast   = entry.key == AppCategories.expense.length - 1;
           return Column(
             children: <Widget>[
               InkWell(

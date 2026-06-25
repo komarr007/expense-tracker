@@ -5,7 +5,9 @@ import '../helpers/db_helper.dart';
 import '../models/expense.dart';
 import '../models/financial_score.dart';
 import '../models/income_record.dart';
+import '../services/reload_notifier.dart';
 import '../theme/app_theme.dart';
+import 'add_expense_screen.dart';
 import 'dashboard_screen.dart';
 import 'expense_list_screen.dart';
 import 'history_screen.dart';
@@ -92,7 +94,14 @@ class _HomeScreenContentState extends State<HomeScreenContent> {
   @override
   void initState() {
     super.initState();
+    ReloadNotifier.instance.addListener(_loadData);
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    ReloadNotifier.instance.removeListener(_loadData);
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -741,7 +750,15 @@ class _HomeScreenContentState extends State<HomeScreenContent> {
             final bool isLast = idx == _todayExpenses.length - 1 && _todayCats.length <= 1;
             return Column(
               children: <Widget>[
-                Padding(
+                InkWell(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => AddExpenseScreen(expense: e)),
+                  ),
+                  borderRadius: isLast
+                      ? const BorderRadius.vertical(bottom: Radius.circular(16))
+                      : BorderRadius.zero,
+                  child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   child: Row(
                     children: <Widget>[
@@ -765,6 +782,7 @@ class _HomeScreenContentState extends State<HomeScreenContent> {
                       Text(_fmt.format(e.amount),
                           style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w700)),
                     ],
+                  ),
                   ),
                 ),
                 if (!isLast) const Divider(height: 1, indent: 68, endIndent: 16),

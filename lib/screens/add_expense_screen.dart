@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../helpers/db_helper.dart';
 import '../models/expense.dart';
 import '../services/notification_service.dart';
+import '../services/reload_notifier.dart';
 import '../theme/app_theme.dart';
 
 class AddExpenseScreen extends StatefulWidget {
@@ -34,16 +35,7 @@ class _MoneyFormatter extends TextInputFormatter {
 }
 
 class _AddExpenseScreenState extends State<AddExpenseScreen> {
-  static const List<String> _categories = <String>[
-    'jajan',
-    'makan',
-    'savings',
-    'investment',
-    'health',
-    'mandatory share income',
-    'tarik tunai',
-    'others',
-  ];
+  static List<String> get _categories => AppCategories.expense;
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _nameCtrl   = TextEditingController();
@@ -126,7 +118,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     } else {
       await DBHelper().updateExpense(expense.copyWith(id: widget.expense!.id));
     }
-
+    ReloadNotifier.instance.notify();
     if (mounted) Navigator.pop(context);
   }
 
