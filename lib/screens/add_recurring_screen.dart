@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../helpers/db_helper.dart';
 import '../models/recurring_expense.dart';
+import '../services/category_registry.dart';
 import '../theme/app_theme.dart';
 
 class AddRecurringScreen extends StatefulWidget {
@@ -46,11 +47,12 @@ class _AddRecurringScreenState extends State<AddRecurringScreen> {
       _dateCtrl.text   = DateFormat('yyyy-MM-dd').format(r.next_due);
       _notesCtrl.text  = r.notes ?? '';
       final String cat = r.category.toLowerCase();
-      _category  = AppCategories.expense.contains(cat) ? cat : AppCategories.expense.last;
+      final List<String> _names = CategoryRegistry().names;
+      _category  = _names.contains(cat) ? cat : (_names.isNotEmpty ? _names.last : '');
       _frequency = r.frequency;
     } else {
       _dateCtrl.text = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      _category      = AppCategories.expense.first;
+      _category      = CategoryRegistry().names.isNotEmpty ? CategoryRegistry().names.first : '';
     }
   }
 
@@ -156,7 +158,7 @@ class _AddRecurringScreenState extends State<AddRecurringScreen> {
                   decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.category_outlined, size: 20, color: AppColors.textMuted),
                   ),
-                  items: AppCategories.expense.map((cat) {
+                  items: CategoryRegistry().names.map((cat) {
                     final Color c = AppColors.category(cat);
                     return DropdownMenuItem<String>(
                       value: cat,

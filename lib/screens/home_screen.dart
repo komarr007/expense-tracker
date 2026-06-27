@@ -758,8 +758,8 @@ class _HomeScreenContentState extends State<HomeScreenContent> {
                       ? const BorderRadius.vertical(bottom: Radius.circular(16))
                       : BorderRadius.zero,
                   child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Row(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: Row(
                     children: <Widget>[
                       Container(
                         width: 40, height: 40,

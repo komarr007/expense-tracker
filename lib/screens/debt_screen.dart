@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../helpers/db_helper.dart';
+import '../helpers/finance_math.dart';
 import '../models/debt.dart';
 import '../services/reload_notifier.dart';
 import '../theme/app_theme.dart';
@@ -19,6 +20,10 @@ class _DebtScreenState extends State<DebtScreen> {
 
   List<Debt> _debts = <Debt>[];
 
+  // Optimizer state (pure UI — no DB changes needed)
+  String _strategy     = 'avalanche'; // 'avalanche' | 'snowball'
+  double _extraPayment = 0;
+
   @override
   void initState() {
     super.initState();
@@ -33,6 +38,53 @@ class _DebtScreenState extends State<DebtScreen> {
   double get _totalBalance  => _debts.fold(0, (s, d) => s + d.currentBalance);
   double get _totalOriginal => _debts.fold(0, (s, d) => s + d.originalAmount);
   double get _totalMinPay   => _debts.fold(0, (s, d) => s + (d.minimumPayment ?? 0));
+
+  // Returns active debts sorted by strategy, paid debts at the end
+  List<Debt> get _sortedDebts {
+    final List<Debt> active = _debts.where((d) => d.currentBalance > 0).toList();
+    final List<Debt> paid   = _debts.where((d) => d.currentBalance <= 0).toList();
+    if (_strategy == 'avalanche') {
+      active.sort((a, b) => b.interestRate.compareTo(a.interestRate));
+    } else {
+      active.sort((a, b) => a.currentBalance.compareTo(b.currentBalance));
+    }
+    return <Debt>[...active, ...paid];
+  }
+
+  // Whether optimizer section should be shown (at least one interest-bearing active debt)
+  bool get _hasInterestDebts =>
+      _debts.any((d) => d.currentBalance > 0 && d.interestRate > 0);
+
+  DebtPayoffResult _resultFor(Debt d) {
+    final double payment = (d.minimumPayment ?? 0) + _extraPayment;
+    if (payment <= 0 || d.currentBalance <= 0) {
+      return const DebtPayoffResult(months: 0, totalInterest: 0);
+    }
+    return FinanceMath.simulateDebtPayoff(
+      balance: d.currentBalance,
+      annualInterestRate: d.interestRate,
+      monthlyPayment: payment,
+    );
+  }
+
+  double get _totalInterestMinimums => _debts.fold(0.0, (s, d) {
+    if (d.currentBalance <= 0 || (d.minimumPayment ?? 0) == 0) return s;
+    return s + FinanceMath.simulateDebtPayoff(
+      balance: d.currentBalance,
+      annualInterestRate: d.interestRate,
+      monthlyPayment: d.minimumPayment!,
+    ).totalInterest;
+  });
+
+  double get _totalInterestWithExtra => _debts.fold(0.0, (s, d) {
+    final double pay = (d.minimumPayment ?? 0) + _extraPayment;
+    if (d.currentBalance <= 0 || pay == 0) return s;
+    return s + FinanceMath.simulateDebtPayoff(
+      balance: d.currentBalance,
+      annualInterestRate: d.interestRate,
+      monthlyPayment: pay,
+    ).totalInterest;
+  });
 
   Future<void> _showSheet({Debt? debt}) async {
     final result = await showModalBottomSheet<bool>(
@@ -176,14 +228,181 @@ class _DebtScreenState extends State<DebtScreen> {
                     ],
                   ),
                 ),
-                // ── Debt cards ───────────────────────────────────────────────
-                ..._debts.map((debt) => _debtCard(debt)),
+                // ── Strategy optimizer (only for interest-bearing debts) ─────
+                if (_hasInterestDebts) _strategySection(),
+                // ── Debt cards (sorted by strategy) ─────────────────────────
+                ..._sortedDebts.map((debt) => _debtCard(debt, payoffResult: _resultFor(debt))),
               ],
             ),
     );
   }
 
-  Widget _debtCard(Debt debt) {
+  // ── Strategy section ─────────────────────────────────────────────────────
+
+  Widget _strategySection() {
+    final double saved = _totalInterestMinimums - _totalInterestWithExtra;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text('PAYOFF STRATEGY',
+              style: TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.8)),
+          const SizedBox(height: 10),
+          Row(children: <Widget>[
+            _strategyToggle('Avalanche', 'avalanche', Icons.local_fire_department_rounded),
+            const SizedBox(width: 8),
+            _strategyToggle('Snowball', 'snowball', Icons.ac_unit_rounded),
+          ]),
+          const SizedBox(height: 6),
+          Text(
+            _strategy == 'avalanche'
+                ? 'Highest interest first — minimizes total interest paid'
+                : 'Smallest balance first — faster early wins',
+            style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: <Widget>[
+              const Text('Extra monthly payment',
+                  style: TextStyle(
+                      color: AppColors.textSecondary, fontSize: 13)),
+              GestureDetector(
+                onTap: _editExtraPayment,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '+ ${_fmt.format(_extraPayment)}',
+                    style: const TextStyle(
+                        color: AppColors.accent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (saved > 0) ...<Widget>[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.positive.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(children: <Widget>[
+                const Icon(Icons.savings_rounded,
+                    size: 14, color: AppColors.positive),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Save ${_fmt.format(saved)} in total interest vs. minimums only',
+                    style: const TextStyle(
+                        color: AppColors.positive, fontSize: 12),
+                  ),
+                ),
+              ]),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _strategyToggle(String label, String value, IconData icon) => Expanded(
+        child: GestureDetector(
+          onTap: () => setState(() => _strategy = value),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 9),
+            decoration: BoxDecoration(
+              color: _strategy == value ? AppColors.accent : AppColors.surface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                  color: _strategy == value
+                      ? AppColors.accent
+                      : AppColors.divider),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Icon(icon,
+                    size: 14,
+                    color: _strategy == value
+                        ? Colors.white
+                        : AppColors.textMuted),
+                const SizedBox(width: 5),
+                Text(label,
+                    style: TextStyle(
+                        color: _strategy == value
+                            ? Colors.white
+                            : AppColors.textMuted,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        ),
+      );
+
+  Future<void> _editExtraPayment() async {
+    final TextEditingController ctrl =
+        TextEditingController(text: _extraPayment > 0 ? _extraPayment.toStringAsFixed(0) : '');
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.card,
+        title: const Text('Extra Monthly Payment',
+            style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
+        content: TextField(
+          controller: ctrl,
+          keyboardType: TextInputType.number,
+          inputFormatters: <TextInputFormatter>[
+            FilteringTextInputFormatter.digitsOnly
+          ],
+          autofocus: true,
+          style: const TextStyle(color: AppColors.textPrimary),
+          decoration: const InputDecoration(
+            hintText: 'Amount above minimums',
+            prefix:
+                Text('Rp  ', style: TextStyle(color: AppColors.textSecondary)),
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Apply')),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      setState(() => _extraPayment =
+          ctrl.text.isEmpty ? 0 : double.parse(ctrl.text));
+    }
+    ctrl.dispose();
+  }
+
+  // ── Debt card ─────────────────────────────────────────────────────────────
+
+  Widget _debtCard(Debt debt, {DebtPayoffResult? payoffResult}) {
     final bool paid = debt.currentBalance <= 0;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -271,6 +490,29 @@ class _DebtScreenState extends State<DebtScreen> {
             const SizedBox(height: 4),
             Text('Min payment: ${_fmt.format(debt.minimumPayment!)}',
                 style: const TextStyle(color: AppColors.textMuted, fontSize: 11)),
+          ],
+          if (payoffResult != null &&
+              payoffResult.months > 0 &&
+              debt.interestRate > 0 &&
+              !paid) ...<Widget>[
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: <Widget>[
+                Row(children: <Widget>[
+                  const Icon(Icons.event_outlined, size: 11, color: AppColors.textMuted),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Payoff ~${DateFormat('MMM yyyy').format(payoffResult.payoffDate)}',
+                    style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
+                  ),
+                ]),
+                Text(
+                  '${_fmt.format(payoffResult.totalInterest)} interest',
+                  style: const TextStyle(color: AppColors.negative, fontSize: 11),
+                ),
+              ],
+            ),
           ],
           if (!paid) ...<Widget>[
             const SizedBox(height: 10),
@@ -411,17 +653,32 @@ class _DebtSheetState extends State<_DebtSheet> {
                     hintText: 'Current balance',
                     prefix: Text('Rp  ', style: TextStyle(color: AppColors.textSecondary)),
                   ),
-                  validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                  validator: (v) {
+                    if (v == null || v.isEmpty) return 'Required';
+                    final double? bal  = double.tryParse(v);
+                    final double? orig = double.tryParse(_origCtrl.text);
+                    if (bal == null) return 'Enter a valid amount';
+                    if (orig != null && bal > orig) return 'Cannot exceed original amount';
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _rateCtrl,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: <TextInputFormatter>[
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                  ],
                   style: const TextStyle(color: AppColors.textPrimary),
                   decoration: const InputDecoration(
                     hintText: 'Interest rate % (optional)',
                     suffixText: '%',
                   ),
+                  validator: (v) {
+                    if (v == null || v.isEmpty) return null;
+                    if (double.tryParse(v) == null) return 'Enter a valid number (e.g. 12.5)';
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 12),
                 TextFormField(

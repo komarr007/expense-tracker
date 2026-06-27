@@ -5,6 +5,7 @@ import 'add_income_screen.dart';
 import '../models/expense.dart';
 import '../models/income_record.dart';
 import '../helpers/db_helper.dart';
+import '../services/category_registry.dart';
 import '../services/reload_notifier.dart';
 import '../theme/app_theme.dart';
 
@@ -40,7 +41,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen>
   final NumberFormat _fmt =
       NumberFormat.currency(locale: 'id_ID', symbol: 'Rp', decimalDigits: 0);
 
-  static List<String> get _expCategories => AppCategories.expense;
+  static List<String> get _expCategories => CategoryRegistry().names;
   static List<String> get _incCategories => IncomeRecord.categories;
 
   // ── Computed helpers ───────────────────────────────────────────────────────

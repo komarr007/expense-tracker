@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../helpers/db_helper.dart';
+import '../helpers/finance_math.dart';
 import '../models/expense.dart';
+import '../services/category_registry.dart';
 import '../services/notification_service.dart';
 import '../services/reload_notifier.dart';
 import '../theme/app_theme.dart';
@@ -35,19 +37,29 @@ class _MoneyFormatter extends TextInputFormatter {
 }
 
 class _AddExpenseScreenState extends State<AddExpenseScreen> {
-  static List<String> get _categories => AppCategories.expense;
+  List<String> get _categories => CategoryRegistry().names;
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _nameCtrl   = TextEditingController();
   final TextEditingController _amountCtrl = TextEditingController();
   final TextEditingController _dateCtrl   = TextEditingController();
   final TextEditingController _notesCtrl  = TextEditingController();
+  final NumberFormat _fmt =
+      NumberFormat.currency(locale: 'id_ID', symbol: 'Rp', decimalDigits: 0);
   String? _selectedCategory;
   bool _saving = false;
+
+  double get _opportunityCostFV {
+    final double? amt =
+        double.tryParse(_amountCtrl.text.replaceAll(',', ''));
+    if (amt == null || amt <= 0) return 0;
+    return FinanceMath.futureValueLump(amt, 0.07, 10);
+  }
 
   @override
   void initState() {
     super.initState();
+    _amountCtrl.addListener(() => setState(() {}));
     if (widget.expense != null) {
       final Expense e = widget.expense!;
       _nameCtrl.text   = e.name;
@@ -55,11 +67,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       _dateCtrl.text   = DateFormat('yyyy-MM-dd').format(e.spend_date);
       _notesCtrl.text  = e.notes ?? '';
       final String cat = e.category.toLowerCase();
-      _selectedCategory =
-          _categories.contains(cat) ? cat : _categories.last;
+      _selectedCategory = _categories.contains(cat)
+          ? cat
+          : (_categories.isNotEmpty ? _categories.last : null);
     } else {
       _dateCtrl.text    = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      _selectedCategory = _categories.first;
+      _selectedCategory = _categories.isNotEmpty ? _categories.first : null;
     }
   }
 
@@ -108,7 +121,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       spend_date: DateTime.parse(_dateCtrl.text),
       category:   _selectedCategory!,
       notes:      _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-      created_at: DateTime.now(),
+      created_at: widget.expense?.created_at ?? DateTime.now(),
       updated_at: DateTime.now(),
     );
 
@@ -183,6 +196,24 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   ),
                   validator: (v) =>
                       (v == null || v.isEmpty) ? 'Amount is required' : null,
+                ),
+                // Opportunity cost nudge — live as user types
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  child: _opportunityCostFV > 0
+                      ? Padding(
+                          key: const ValueKey<String>('oc'),
+                          padding: const EdgeInsets.only(top: 5, left: 4),
+                          child: Text(
+                            '≈ ${_fmt.format(_opportunityCostFV)} in 10 yrs at 7%/yr if invested',
+                            style: const TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 11,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(key: ValueKey<String>('empty')),
                 ),
 
                 const SizedBox(height: 16),

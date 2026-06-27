@@ -1,14 +1,20 @@
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../helpers/db_helper.dart';
+import '../helpers/finance_math.dart';
 import '../models/debt.dart';
 import '../models/envelope.dart';
 import '../models/net_worth_item.dart';
+import '../models/savings_goal.dart';
+import '../services/category_registry.dart';
 import '../services/reload_notifier.dart';
 import '../theme/app_theme.dart';
+import '../widgets/ring_painter.dart';
 import 'debt_screen.dart';
 import 'envelope_screen.dart';
 import 'net_worth_screen.dart';
+import 'savings_goal_screen.dart';
 
 // ── Data holder ───────────────────────────────────────────────────────────────
 
@@ -55,6 +61,13 @@ class _FinanceScreenState extends State<FinanceScreen> {
   // debts
   List<Debt> _debts = <Debt>[];
 
+  // savings goals
+  List<SavingsGoal> _goals = <SavingsGoal>[];
+
+  // future-value projector settings
+  double _projectorReturn = 7.0; // annual %
+  int    _projectorYears  = 10;
+
   @override
   void initState() {
     super.initState();
@@ -100,16 +113,20 @@ class _FinanceScreenState extends State<FinanceScreen> {
     // Debts
     final List<Debt> debts = await db.getDebts();
 
+    // Savings goals
+    final List<SavingsGoal> goals = await db.getGoals();
+
     if (mounted) {
       setState(() {
-        _loading        = false;
-        _history        = history;
+        _loading         = false;
+        _history         = history;
         _thisMonthIncome = thisIncome;
-        _catTotals      = catTotals;
-        _netWorthItems  = nwItems;
-        _envelopes      = envelopes;
-        _envSpent       = envSpent;
-        _debts          = debts;
+        _catTotals       = catTotals;
+        _netWorthItems   = nwItems;
+        _envelopes       = envelopes;
+        _envSpent        = envSpent;
+        _debts           = debts;
+        _goals           = goals;
       });
     }
   }
@@ -124,10 +141,23 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   double get _totalDebt => _debts.fold(0, (s, d) => s + d.currentBalance);
 
+  // Average monthly savings from last 3 months that have income data
+  double get _avgMonthlySavings {
+    final List<_MonthSummary> recent = _history
+        .where((m) => m.income > 0)
+        .toList()
+        .reversed
+        .take(3)
+        .toList();
+    if (recent.isEmpty) return 0;
+    return recent.fold(0.0, (s, m) => s + m.savings.clamp(0, double.infinity)) /
+        recent.length;
+  }
+
   Map<String, double> _buckets() {
     double needs = 0, wants = 0, savings = 0;
     for (final entry in _catTotals.entries) {
-      final String bucket = AppCategories.expenseNature[entry.key] ?? 'wants';
+      final String bucket = CategoryRegistry().natureOf(entry.key);
       if (bucket == 'needs')   needs   += entry.value;
       if (bucket == 'wants')   wants   += entry.value;
       if (bucket == 'savings') savings += entry.value;
@@ -155,10 +185,14 @@ class _FinanceScreenState extends State<FinanceScreen> {
                       const SizedBox(height: 10),
                       _savingsRateCard(),
                       const SizedBox(height: 12),
+                      _projectorCard(),
+                      const SizedBox(height: 12),
                       _fiftyThirtyTwentyCard(),
                       const SizedBox(height: 24),
                       _sectionLabel('PLANNING'),
                       const SizedBox(height: 10),
+                      _savingsGoalsCard(),
+                      const SizedBox(height: 12),
                       _netWorthCard(),
                       const SizedBox(height: 12),
                       _envelopesCard(),
@@ -209,35 +243,35 @@ class _FinanceScreenState extends State<FinanceScreen> {
             style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
           ),
           const SizedBox(height: 16),
-          // 6-month bar chart
+          // 6-month bar chart — max bar area is 40px; label row is 12px
           SizedBox(
-            height: 56,
+            height: 52,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
-              children: _history.map((m) {
-                final bool pos = m.savings >= 0;
-                final double barRatio = _history.any((h) => h.income > 0)
-                    ? (m.rate.abs() * 0.9 + 0.1).clamp(0.05, 1.0)
-                    : 0.2;
-                final bool isCurrent = m == _history.last;
+              children: _history.asMap().entries.map((entry) {
+                final int idx = entry.key;
+                final _MonthSummary m = entry.value;
+                final bool pos        = m.savings >= 0;
+                final bool isCurrent  = idx == _history.length - 1;
+                final bool hasData    = _history.any((h) => h.income > 0 || h.expenses > 0);
+                final double barHeight = hasData
+                    ? ((m.rate.abs() * 0.9 + 0.1).clamp(0.05, 1.0) * 38).roundToDouble()
+                    : 6.0;
                 return Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 3),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: <Widget>[
-                        Flexible(
-                          child: FractionallySizedBox(
-                            heightFactor: barRatio,
-                            widthFactor: 1.0,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: isCurrent
-                                    ? (pos ? AppColors.positive : AppColors.negative)
-                                    : (pos ? AppColors.positive.withOpacity(0.35) : AppColors.negative.withOpacity(0.35)),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                            ),
+                        Container(
+                          height: barHeight,
+                          decoration: BoxDecoration(
+                            color: isCurrent
+                                ? (pos ? AppColors.positive : AppColors.negative)
+                                : (pos
+                                    ? AppColors.positive.withOpacity(0.35)
+                                    : AppColors.negative.withOpacity(0.35)),
+                            borderRadius: BorderRadius.circular(4),
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -536,6 +570,272 @@ class _FinanceScreenState extends State<FinanceScreen> {
     );
   }
 
+  // ── Savings Goals card ────────────────────────────────────────────────────
+
+  Widget _savingsGoalsCard() {
+    return _card(
+      onTap: () => Navigator.push(
+          context, MaterialPageRoute(builder: (_) => const SavingsGoalScreen())),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: const <Widget>[
+              Text('Savings Goals',
+                  style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700)),
+              Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+            ],
+          ),
+          if (_goals.isEmpty) ...<Widget>[
+            const SizedBox(height: 8),
+            const Text('Tap to set saving targets',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
+          ] else ...<Widget>[
+            const SizedBox(height: 12),
+            Row(
+              children: _goals.take(4).map((g) {
+                return Padding(
+                  padding: const EdgeInsets.only(right: 14),
+                  child: Column(
+                    children: <Widget>[
+                      SizedBox(
+                        width: 52,
+                        height: 52,
+                        child: CustomPaint(
+                          painter: RingPainter(
+                            progress: g.progress,
+                            color: g.isComplete ? AppColors.positive : g.color,
+                            strokeWidth: 5,
+                          ),
+                          child: Center(
+                            child: Text(
+                              '${(g.progress * 100).toStringAsFixed(0)}%',
+                              style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      SizedBox(
+                        width: 52,
+                        child: Text(g.name,
+                            style: const TextStyle(
+                                color: AppColors.textMuted, fontSize: 10),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+            if (_goals.length > 4)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text('+${_goals.length - 4} more',
+                    style: const TextStyle(
+                        color: AppColors.textMuted, fontSize: 12)),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ── Future-Value Projector card ───────────────────────────────────────────
+
+  Widget _projectorCard() {
+    final double pmt = _avgMonthlySavings;
+    final double r   = _projectorReturn / 100;
+
+    Widget body;
+    if (pmt <= 0) {
+      body = const Padding(
+        padding: EdgeInsets.only(top: 8),
+        child: Text(
+          'Add income records to see future-value projections.',
+          style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+        ),
+      );
+    } else {
+      final List<double> points =
+          FinanceMath.projectionPoints(pmt, r, 30);
+      final double fv10 = FinanceMath.futureValueAnnuity(pmt, r, 10);
+      final double fv20 = FinanceMath.futureValueAnnuity(pmt, r, 20);
+      final double fv30 = FinanceMath.futureValueAnnuity(pmt, r, 30);
+
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Based on avg ${_fmt.format(pmt)}/mo savings (last 3 months)',
+            style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          // Year toggles
+          Row(
+            children: <int>[10, 20, 30].map((y) {
+              final bool selected = _projectorYears == y;
+              return GestureDetector(
+                onTap: () => setState(() => _projectorYears = y),
+                child: Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: selected ? AppColors.accent : AppColors.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                        color: selected
+                            ? AppColors.accent
+                            : AppColors.divider),
+                  ),
+                  child: Text('${y}yr',
+                      style: TextStyle(
+                          color: selected
+                              ? Colors.white
+                              : AppColors.textMuted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600)),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+          // Curve chart
+          SizedBox(
+            height: 90,
+            child: CustomPaint(
+              painter: _FVCurvePainter(
+                points: points,
+                highlightYears: _projectorYears,
+              ),
+              size: const Size(double.infinity, 90),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Milestone row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: <Widget>[
+              _milestone('10 yr', fv10),
+              _milestone('20 yr', fv20),
+              _milestone('30 yr', fv30),
+            ],
+          ),
+        ],
+      );
+    }
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: <Widget>[
+              const Text('Future-Value Projector',
+                  style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700)),
+              // Tappable return-rate pill
+              GestureDetector(
+                onTap: _editProjectorReturn,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${_projectorReturn.toStringAsFixed(1)}%/yr ▾',
+                    style: const TextStyle(
+                        color: AppColors.accent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          body,
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editProjectorReturn() async {
+    double temp = _projectorReturn;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          backgroundColor: AppColors.card,
+          title: const Text('Annual Return Rate',
+              style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text('${temp.toStringAsFixed(1)}% / year',
+                  style: const TextStyle(
+                      color: AppColors.accent,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700)),
+              Slider(
+                value: temp,
+                min: 1,
+                max: 20,
+                divisions: 190,
+                activeColor: AppColors.accent,
+                onChanged: (v) => setLocal(() => temp = v),
+              ),
+              const Text('Adjust to match expected investment return',
+                  style:
+                      TextStyle(color: AppColors.textMuted, fontSize: 12)),
+            ],
+          ),
+          actions: <Widget>[
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel')),
+            TextButton(
+              onPressed: () {
+                setState(() => _projectorReturn = temp);
+                Navigator.pop(ctx);
+              },
+              child: const Text('Apply'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _milestone(String label, double value) => Column(
+        children: <Widget>[
+          Text(label,
+              style:
+                  const TextStyle(color: AppColors.textMuted, fontSize: 10)),
+          const SizedBox(height: 2),
+          Text(_fmt.format(value),
+              style: const TextStyle(
+                  color: AppColors.positive,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700)),
+        ],
+      );
+
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   Widget _card({required Widget child, VoidCallback? onTap}) => Container(
@@ -567,4 +867,81 @@ class _FinanceScreenState extends State<FinanceScreen> {
     ),
     child: Text(text, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w500)),
   );
+}
+
+// ── Future-value curve painter ────────────────────────────────────────────────
+
+class _FVCurvePainter extends CustomPainter {
+  final List<double> points;   // index 0..30 (year 0 = 0)
+  final int highlightYears;    // which year to mark with a dot
+
+  const _FVCurvePainter({required this.points, required this.highlightYears});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.length < 2) return;
+    final double maxVal = points.last > 0 ? points.last : 1;
+    final int n = points.length - 1;
+
+    double xOf(int i) => i / n * size.width;
+    double yOf(double v) => size.height - (v / maxVal) * size.height;
+
+    // Fill path (gradient)
+    final Path fillPath = Path();
+    fillPath.moveTo(xOf(0), size.height);
+    for (int i = 0; i <= n; i++) {
+      fillPath.lineTo(xOf(i), yOf(points[i]));
+    }
+    fillPath.lineTo(xOf(n), size.height);
+    fillPath.close();
+
+    final Paint fillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: <Color>[
+          AppColors.accent.withOpacity(0.25),
+          AppColors.accent.withOpacity(0.0),
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    canvas.drawPath(fillPath, fillPaint);
+
+    // Stroke path
+    final Path strokePath = Path();
+    strokePath.moveTo(xOf(0), yOf(points[0]));
+    for (int i = 1; i <= n; i++) {
+      strokePath.lineTo(xOf(i), yOf(points[i]));
+    }
+    canvas.drawPath(
+      strokePath,
+      Paint()
+        ..color = AppColors.accent
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0
+        ..strokeCap = StrokeCap.round,
+    );
+
+    // Highlight dot at the selected year
+    if (highlightYears <= n) {
+      final double hx = xOf(highlightYears);
+      final double hy = yOf(points[highlightYears]);
+      canvas.drawCircle(
+        Offset(hx, hy),
+        4,
+        Paint()..color = AppColors.accent,
+      );
+      canvas.drawCircle(
+        Offset(hx, hy),
+        4,
+        Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FVCurvePainter old) =>
+      old.highlightYears != highlightYears || !listEquals(old.points, points);
 }

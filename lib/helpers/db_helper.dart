@@ -7,6 +7,8 @@ import '../models/history_record.dart';
 import '../models/income_record.dart';
 import '../models/net_worth_item.dart';
 import '../models/recurring_expense.dart';
+import '../models/expense_category.dart';
+import '../models/savings_goal.dart';
 import 'package:logger/logger.dart';
 
 class DBHelper {
@@ -30,7 +32,7 @@ class DBHelper {
     final String path = join(await getDatabasesPath(), 'expense.db');
     return openDatabase(
       path,
-      version: 5,
+      version: 7,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -128,6 +130,68 @@ class DBHelper {
         updated_at       TEXT NOT NULL
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE savings_goals (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        name           TEXT NOT NULL,
+        target_amount  REAL NOT NULL,
+        current_amount REAL NOT NULL DEFAULT 0,
+        deadline       TEXT,
+        color_hex      TEXT NOT NULL DEFAULT 'FF6C63FF',
+        created_at     TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE expense_categories (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT NOT NULL UNIQUE,
+        color_hex  TEXT NOT NULL,
+        nature     TEXT NOT NULL DEFAULT 'wants',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_default INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+    await _seedCategories(db, _freshSeeds);
+  }
+
+  // Seed rows for a brand-new install (universal, language-neutral labels).
+  static const List<Map<String, dynamic>> _freshSeeds = <Map<String, dynamic>>[
+    <String, dynamic>{'name': 'food',          'color_hex': 'FFF472B6', 'nature': 'needs',   'sort_order': 0,  'is_default': 0},
+    <String, dynamic>{'name': 'transport',     'color_hex': 'FF60A5FA', 'nature': 'needs',   'sort_order': 1,  'is_default': 0},
+    <String, dynamic>{'name': 'health',        'color_hex': 'FFFB7185', 'nature': 'needs',   'sort_order': 2,  'is_default': 0},
+    <String, dynamic>{'name': 'bills',         'color_hex': 'FFA78BFA', 'nature': 'needs',   'sort_order': 3,  'is_default': 0},
+    <String, dynamic>{'name': 'shopping',      'color_hex': 'FF2DD4BF', 'nature': 'wants',   'sort_order': 4,  'is_default': 0},
+    <String, dynamic>{'name': 'entertainment', 'color_hex': 'FFFBBF24', 'nature': 'wants',   'sort_order': 5,  'is_default': 0},
+    <String, dynamic>{'name': 'savings',       'color_hex': 'FF4ADE80', 'nature': 'savings', 'sort_order': 6,  'is_default': 0},
+    <String, dynamic>{'name': 'investment',    'color_hex': 'FF818CF8', 'nature': 'savings', 'sort_order': 7,  'is_default': 0},
+    <String, dynamic>{'name': 'education',     'color_hex': 'FFF59E0B', 'nature': 'needs',   'sort_order': 8,  'is_default': 0},
+    <String, dynamic>{'name': 'others',        'color_hex': 'FF94A3B8', 'nature': 'wants',   'sort_order': 99, 'is_default': 1},
+  ];
+
+  // Seed rows for users migrating from v6 — preserves old category strings
+  // that already exist in their expenses table.
+  static const List<Map<String, dynamic>> _migrationSeeds = <Map<String, dynamic>>[
+    <String, dynamic>{'name': 'jajan',                  'color_hex': 'FF2DD4BF', 'nature': 'wants',   'sort_order': 0,  'is_default': 0},
+    <String, dynamic>{'name': 'makan',                  'color_hex': 'FFF472B6', 'nature': 'needs',   'sort_order': 1,  'is_default': 0},
+    <String, dynamic>{'name': 'savings',                'color_hex': 'FF4ADE80', 'nature': 'savings', 'sort_order': 2,  'is_default': 0},
+    <String, dynamic>{'name': 'investment',             'color_hex': 'FF60A5FA', 'nature': 'savings', 'sort_order': 3,  'is_default': 0},
+    <String, dynamic>{'name': 'health',                 'color_hex': 'FFFB7185', 'nature': 'needs',   'sort_order': 4,  'is_default': 0},
+    <String, dynamic>{'name': 'mandatory share income', 'color_hex': 'FFA78BFA', 'nature': 'needs',   'sort_order': 5,  'is_default': 0},
+    <String, dynamic>{'name': 'tarik tunai',            'color_hex': 'FF94A3B8', 'nature': 'needs',   'sort_order': 6,  'is_default': 0},
+    <String, dynamic>{'name': 'others',                 'color_hex': 'FFFBBF24', 'nature': 'wants',   'sort_order': 99, 'is_default': 1},
+  ];
+
+  Future<void> _seedCategories(
+      Database db, List<Map<String, dynamic>> seeds) async {
+    for (final Map<String, dynamic> row in seeds) {
+      await db.insert(
+        'expense_categories',
+        row,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
   }
 
   // ── Migrations ───────────────────────────────────────────────────────────────
@@ -220,6 +284,34 @@ class DBHelper {
           updated_at       TEXT NOT NULL
         )
       ''');
+    }
+    if (oldVersion < 6) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS savings_goals (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          name           TEXT NOT NULL,
+          target_amount  REAL NOT NULL,
+          current_amount REAL NOT NULL DEFAULT 0,
+          deadline       TEXT,
+          color_hex      TEXT NOT NULL DEFAULT 'FF6C63FF',
+          created_at     TEXT NOT NULL
+        )
+      ''');
+    }
+    if (oldVersion < 7) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS expense_categories (
+          id         INTEGER PRIMARY KEY AUTOINCREMENT,
+          name       TEXT NOT NULL UNIQUE,
+          color_hex  TEXT NOT NULL,
+          nature     TEXT NOT NULL DEFAULT 'wants',
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          is_default INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
+      // Seed with the old hardcoded categories so existing expense records
+      // still resolve to correct colors and 50/30/20 buckets.
+      await _seedCategories(db, _migrationSeeds);
     }
   }
 
@@ -530,6 +622,63 @@ class DBHelper {
     final List<Map<String, dynamic>> maps =
         await db.query('debts', orderBy: 'created_at ASC');
     return maps.map(Debt.fromMap).toList();
+  }
+
+  // ── Savings Goals ─────────────────────────────────────────────────────────────
+
+  Future<int> insertGoal(SavingsGoal goal) async {
+    final db = await database;
+    return db.insert('savings_goals', goal.toMap());
+  }
+
+  Future<int> updateGoal(SavingsGoal goal) async {
+    final db = await database;
+    return db.update(
+      'savings_goals', goal.toMap(),
+      where: 'id = ?', whereArgs: <Object?>[goal.id],
+    );
+  }
+
+  Future<int> deleteGoal(int id) async {
+    final db = await database;
+    return db.delete('savings_goals', where: 'id = ?', whereArgs: <Object?>[id]);
+  }
+
+  Future<List<SavingsGoal>> getGoals() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps =
+        await db.query('savings_goals', orderBy: 'created_at ASC');
+    return maps.map(SavingsGoal.fromMap).toList();
+  }
+
+  // ── Expense categories ───────────────────────────────────────────────────────
+
+  Future<List<ExpenseCategory>> getCategories() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps =
+        await db.query('expense_categories', orderBy: 'sort_order ASC, name ASC');
+    return maps.map(ExpenseCategory.fromMap).toList();
+  }
+
+  Future<int> insertCategory(ExpenseCategory cat) async {
+    final db = await database;
+    return db.insert('expense_categories', cat.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<int> updateCategory(ExpenseCategory cat) async {
+    final db = await database;
+    return db.update(
+      'expense_categories', cat.toMap(),
+      where: 'id = ?', whereArgs: <Object?>[cat.id],
+    );
+  }
+
+  Future<int> deleteCategory(int id) async {
+    final db = await database;
+    return db.delete(
+      'expense_categories', where: 'id = ? AND is_default = 0', whereArgs: <Object?>[id],
+    );
   }
 
   // Closes and nulls the database connection so the next access reopens it fresh.

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../helpers/db_helper.dart';
 import '../models/envelope.dart';
+import '../services/category_registry.dart';
 import '../services/reload_notifier.dart';
 import '../theme/app_theme.dart';
 
@@ -41,10 +42,16 @@ class _EnvelopeScreenState extends State<EnvelopeScreen> {
   double get _totalSpent  => _spent.values.fold(0, (s, v) => s + v);
 
   Future<void> _showSheet({Envelope? envelope}) async {
+    // Pass all categories currently assigned to OTHER envelopes so the sheet
+    // can exclude them from the picker, preventing duplicates.
+    final Set<String> usedCats = _envelopes
+        .where((e) => e.id != envelope?.id)
+        .map((e) => e.category)
+        .toSet();
     final result = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _EnvelopeSheet(envelope: envelope),
+      builder: (_) => _EnvelopeSheet(envelope: envelope, usedCategories: usedCats),
     );
     if (result == true) {
       ReloadNotifier.instance.notify();
@@ -222,7 +229,9 @@ class _EnvelopeScreenState extends State<EnvelopeScreen> {
 
 class _EnvelopeSheet extends StatefulWidget {
   final Envelope? envelope;
-  const _EnvelopeSheet({this.envelope});
+  // Categories already assigned to other envelopes — excluded from the picker when adding.
+  final Set<String> usedCategories;
+  const _EnvelopeSheet({this.envelope, this.usedCategories = const <String>{}});
 
   @override
   State<_EnvelopeSheet> createState() => _EnvelopeSheetState();
@@ -235,6 +244,12 @@ class _EnvelopeSheetState extends State<_EnvelopeSheet> {
   late String _category;
   bool _saving = false;
 
+  // Available categories: all expense categories minus those already used by
+  // other envelopes (but always include the current envelope's own category).
+  List<String> get _availableCategories => CategoryRegistry().names
+      .where((c) => !widget.usedCategories.contains(c) || c == widget.envelope?.category)
+      .toList();
+
   @override
   void initState() {
     super.initState();
@@ -244,7 +259,10 @@ class _EnvelopeSheetState extends State<_EnvelopeSheet> {
       _budgetCtrl.text = env.monthlyBudget.toStringAsFixed(0);
       _category        = env.category;
     } else {
-      _category = AppCategories.expense.first;
+      // Default to the first category that isn't already taken.
+      _category = _availableCategories.isNotEmpty
+          ? _availableCategories.first
+          : (CategoryRegistry().names.isNotEmpty ? CategoryRegistry().names.first : '');
     }
   }
 
@@ -275,6 +293,7 @@ class _EnvelopeSheetState extends State<_EnvelopeSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final List<String> available = _availableCategories;
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: Container(
@@ -296,6 +315,13 @@ class _EnvelopeSheetState extends State<_EnvelopeSheet> {
               const SizedBox(height: 16),
               Text(widget.envelope == null ? 'New Envelope' : 'Edit Envelope',
                   style: const TextStyle(color: AppColors.textPrimary, fontSize: 17, fontWeight: FontWeight.w700)),
+              if (widget.envelope == null && available.isEmpty) ...<Widget>[
+                const SizedBox(height: 12),
+                const Text(
+                  'All expense categories already have an envelope.',
+                  style: TextStyle(color: AppColors.warning, fontSize: 13),
+                ),
+              ],
               const SizedBox(height: 20),
               TextFormField(
                 controller: _nameCtrl,
@@ -306,11 +332,11 @@ class _EnvelopeSheetState extends State<_EnvelopeSheet> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: _category,
+                value: available.contains(_category) ? _category : (available.isNotEmpty ? available.first : null),
                 dropdownColor: AppColors.surface,
                 style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
                 decoration: const InputDecoration(hintText: 'Category'),
-                items: AppCategories.expense.map((c) {
+                items: available.map((c) {
                   final Color col = AppColors.category(c);
                   return DropdownMenuItem<String>(
                     value: c,
@@ -321,7 +347,7 @@ class _EnvelopeSheetState extends State<_EnvelopeSheet> {
                     ]),
                   );
                 }).toList(),
-                onChanged: (v) { if (v != null) setState(() => _category = v); },
+                onChanged: available.isNotEmpty ? (v) { if (v != null) setState(() => _category = v); } : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -337,7 +363,7 @@ class _EnvelopeSheetState extends State<_EnvelopeSheet> {
               ),
               const SizedBox(height: 24),
               ElevatedButton(
-                onPressed: _saving ? null : _save,
+                onPressed: (_saving || available.isEmpty) ? null : _save,
                 child: _saving
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                     : Text(widget.envelope == null ? 'Add Envelope' : 'Save Changes'),

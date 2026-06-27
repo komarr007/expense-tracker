@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
 import '../helpers/db_helper.dart';
+import '../services/category_registry.dart';
 import '../theme/app_theme.dart';
 import 'home_screen.dart';
 
@@ -50,6 +51,8 @@ class _SplashScreenState extends State<SplashScreen>
     } catch (e) {
       _log.e('processRecurring', error: e);
     }
+    _setStatus('Loading categories…');
+    await CategoryRegistry().reload();
     await Future<void>.delayed(const Duration(milliseconds: 800));
     _navigate();
   }
