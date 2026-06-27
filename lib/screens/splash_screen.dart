@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
-import 'package:path_provider/path_provider.dart';
-import 'dart:io';
-import 'package:flutter/services.dart';
 import '../helpers/db_helper.dart';
+import '../services/category_registry.dart';
 import '../theme/app_theme.dart';
 import 'home_screen.dart';
 
@@ -44,7 +42,6 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _init() async {
-    await _importData();
     _setStatus('Cleaning up old records…');
     await _db.deleteOldHistoryRecords();
     _setStatus('Checking recurring expenses…');
@@ -54,24 +51,10 @@ class _SplashScreenState extends State<SplashScreen>
     } catch (e) {
       _log.e('processRecurring', error: e);
     }
+    _setStatus('Loading categories…');
+    await CategoryRegistry().reload();
     await Future<void>.delayed(const Duration(milliseconds: 800));
     _navigate();
-  }
-
-  Future<void> _importData() async {
-    _setStatus('Loading data…');
-    try {
-      final Directory dir = await getApplicationDocumentsDirectory();
-      final String path   = '${dir.path}/expense_etl.db';
-      if (!await File(path).exists()) {
-        final ByteData data =
-            await rootBundle.load('assets/databases/expense_etl.db');
-        await File(path).writeAsBytes(data.buffer.asUint8List());
-      }
-      await _db.importExistingData(path);
-    } catch (e) {
-      _log.e('ETL import', error: e);
-    }
   }
 
   void _setStatus(String s) {

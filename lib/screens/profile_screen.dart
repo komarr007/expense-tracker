@@ -12,13 +12,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import '../helpers/db_helper.dart';
 import '../models/expense.dart';
+import '../models/income_record.dart';
+import '../services/category_registry.dart';
+import '../services/reload_notifier.dart';
 import '../theme/app_theme.dart';
+import 'history_screen.dart';
+import 'manage_categories_screen.dart';
 import 'recurring_screen.dart';
 
-const List<String> _kExpenseCategories = <String>[
-  'jajan', 'makan', 'savings', 'investment', 'health',
-  'mandatory share income', 'tarik tunai', 'others',
-];
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -38,14 +39,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
+    ReloadNotifier.instance.addListener(_onReload);
     _loadPrefs();
   }
 
   @override
   void dispose() {
+    ReloadNotifier.instance.removeListener(_onReload);
     _budgetCtrl.dispose();
     super.dispose();
   }
+
+  void _onReload() => setState(() {});
 
   Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
@@ -188,6 +193,90 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return false;
   }
 
+  Future<void> _restoreDatabase() async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Restore from Backup'),
+        content: const Text(
+          'This will replace ALL current data with the selected backup.\n\n'
+          'This cannot be undone. Continue?',
+        ),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Restore', style: TextStyle(color: AppColors.negative)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      if (!await _requestStoragePermission()) {
+        Fluttertoast.showToast(msg: 'Storage permission required.');
+        return;
+      }
+
+      final FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: <String>['db'],
+      );
+      if (result == null || result.files.single.path == null) return;
+
+      final File src = File(result.files.single.path!);
+
+      // Verify the file is a real SQLite database by checking its 16-byte magic header.
+      final RandomAccessFile raf = await src.open();
+      final List<int> header = await raf.read(16);
+      await raf.close();
+      const List<int> _sqliteMagic = <int>[
+        83, 81, 76, 105, 116, 101, 32, 102, 111, 114, 109, 97, 116, 32, 51, 0,
+      ]; // "SQLite format 3\0"
+      for (int i = 0; i < _sqliteMagic.length; i++) {
+        if (i >= header.length || header[i] != _sqliteMagic[i]) {
+          Fluttertoast.showToast(msg: 'Not a valid database file.');
+          return;
+        }
+      }
+
+      // Close the live connection before replacing the file on disk.
+      await DBHelper().resetDatabase();
+
+      final Directory appDir = await getApplicationDocumentsDirectory();
+      final String dbPath = '${appDir.parent.path}/databases/expense.db';
+      await src.copy(dbPath);
+
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Restore Complete'),
+          content: const Text(
+            'Your backup has been restored.\n\n'
+            'Tap "Exit App" and reopen to see the restored data.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                SystemNavigator.pop();
+              },
+              child: const Text('Exit App'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Later'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      Fluttertoast.showToast(msg: 'Restore failed: $e');
+    }
+  }
+
   Future<void> _exportDatabase() async {
     try {
       final dir    = await getApplicationDocumentsDirectory();
@@ -203,27 +292,54 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _exportToExcel() async {
     try {
-      final List<Expense> expenses = await DBHelper().getExpenses();
-      if (expenses.isEmpty) { Fluttertoast.showToast(msg: 'No data to export.'); return; }
+      final List<Expense>      expenses = await DBHelper().getExpenses();
+      final List<IncomeRecord> income   = await DBHelper().getIncomeRecords();
+      if (expenses.isEmpty && income.isEmpty) {
+        Fluttertoast.showToast(msg: 'No data to export.');
+        return;
+      }
+
       final Excel excel = Excel.createExcel();
-      final Sheet sheet = excel['Expenses'];
-      sheet.appendRow(<CellValue?>[
+
+      // ── Expenses sheet ────────────────────────────────────────────────────
+      final Sheet expSheet = excel['Expenses'];
+      expSheet.appendRow(<CellValue?>[
         TextCellValue('ID'), TextCellValue('Name'), TextCellValue('Amount'),
         TextCellValue('Date'), TextCellValue('Category'), TextCellValue('Notes'),
       ]);
       for (final e in expenses) {
-        sheet.appendRow(<CellValue?>[
+        expSheet.appendRow(<CellValue?>[
           TextCellValue(e.id.toString()), TextCellValue(e.name),
-          TextCellValue(e.amount.toString()),
+          DoubleCellValue(e.amount),
           TextCellValue(DateFormat('yyyy-MM-dd').format(e.spend_date)),
           TextCellValue(e.category), TextCellValue(e.notes ?? ''),
         ]);
       }
+
+      // ── Income sheet ──────────────────────────────────────────────────────
+      final Sheet incSheet = excel['Income'];
+      incSheet.appendRow(<CellValue?>[
+        TextCellValue('ID'), TextCellValue('Name'), TextCellValue('Amount'),
+        TextCellValue('Date'), TextCellValue('Category'), TextCellValue('Notes'),
+      ]);
+      for (final r in income) {
+        incSheet.appendRow(<CellValue?>[
+          TextCellValue(r.id.toString()), TextCellValue(r.name),
+          DoubleCellValue(r.amount),
+          TextCellValue(DateFormat('yyyy-MM-dd').format(r.income_date)),
+          TextCellValue(r.category), TextCellValue(r.notes ?? ''),
+        ]);
+      }
+
+      // Remove the default empty sheet the library creates
+      excel.delete('Sheet1');
+
       if (!await _requestStoragePermission()) { Fluttertoast.showToast(msg: 'Storage permission required.'); return; }
       final String? dest = await FilePicker.platform.getDirectoryPath();
       if (dest == null || dest.isEmpty) { Fluttertoast.showToast(msg: 'No directory selected.'); return; }
-      await File('$dest/expenses.xlsx').writeAsBytes(excel.encode()!);
-      Fluttertoast.showToast(msg: 'Excel exported to $dest');
+      final String filename = 'money_logger_${DateFormat('yyyyMMdd').format(DateTime.now())}.xlsx';
+      await File('$dest/$filename').writeAsBytes(excel.encode()!);
+      Fluttertoast.showToast(msg: 'Exported $filename to $dest');
     } catch (e) { Fluttertoast.showToast(msg: 'Export failed: $e'); }
   }
 
@@ -241,6 +357,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _sectionLabel('MONTHLY BUDGET'),
             const SizedBox(height: 8),
             _budgetCard(),
+            const SizedBox(height: 28),
+            _sectionLabel('CATEGORIES'),
+            const SizedBox(height: 8),
+            _manageCategoriesCard(),
             const SizedBox(height: 28),
             _sectionLabel('CATEGORY LIMITS'),
             const SizedBox(height: 8),
@@ -343,10 +463,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Container(
       decoration: BoxDecoration(color: AppColors.card, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.divider)),
       child: Column(
-        children: _kExpenseCategories.asMap().entries.map((entry) {
+        children: CategoryRegistry().names.asMap().entries.map((entry) {
           final String cat    = entry.value;
           final double? limit = _catBudgets[cat];
-          final bool isLast   = entry.key == _kExpenseCategories.length - 1;
+          final bool isLast   = entry.key == CategoryRegistry().names.length - 1;
           return Column(
             children: <Widget>[
               InkWell(
@@ -378,6 +498,52 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
           );
         }).toList(),
+      ),
+    );
+  }
+
+  Widget _manageCategoriesCard() {
+    final int count = CategoryRegistry().names.length;
+    return InkWell(
+      onTap: () => Navigator.push(
+          context, MaterialPageRoute(builder: (_) => const ManageCategoriesScreen())),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+            color: AppColors.card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.divider)),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(
+                  color: AppColors.accent.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(10)),
+              child: const Icon(Icons.category_rounded,
+                  color: AppColors.accent, size: 20),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Text('Manage Categories',
+                      style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500)),
+                  Text('$count ${count == 1 ? 'category' : 'categories'} · add, edit, reorder',
+                      style: const TextStyle(
+                          color: AppColors.textMuted, fontSize: 12)),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded,
+                color: AppColors.textMuted, size: 20),
+          ],
+        ),
       ),
     );
   }
@@ -418,8 +584,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       decoration: BoxDecoration(color: AppColors.card, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.divider)),
       child: Column(
         children: <Widget>[
+          _dataAction(icon: Icons.history_rounded, iconColor: AppColors.accent,
+              label: 'Deleted Records', sublabel: 'View recently deleted transactions', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryScreen()))),
+          const Divider(height: 1, indent: 68),
           _dataAction(icon: Icons.backup_rounded, iconColor: const Color(0xFF60A5FA),
               label: 'Backup Database', sublabel: 'Save a copy of the database file', onTap: _exportDatabase),
+          const Divider(height: 1, indent: 68),
+          _dataAction(icon: Icons.restore_rounded, iconColor: AppColors.warning,
+              label: 'Restore from Backup', sublabel: 'Replace data from a .db backup file', onTap: _restoreDatabase),
           const Divider(height: 1, indent: 68),
           _dataAction(icon: Icons.table_chart_outlined, iconColor: AppColors.positive,
               label: 'Export to Excel', sublabel: 'Download all records as .xlsx', onTap: _exportToExcel, isLast: true),
@@ -466,7 +638,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: <Widget>[
           _infoRow('App Name', 'The Money Logger'),
           const Divider(height: 20),
-          _infoRow('Version', '1.3.0'),
+          _infoRow('Version', '1.4.0 (build 6)'),
           const Divider(height: 20),
           _infoRow('Data Retention', 'Deleted records kept 14 days'),
         ],

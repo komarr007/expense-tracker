@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../services/category_registry.dart';
 
 // ── Colour palette ────────────────────────────────────────────────────────────
 
@@ -39,20 +40,20 @@ abstract final class AppColors {
     }
   }
 
-  // Expense category colours
-  static Color category(String name) {
-    switch (name.toLowerCase()) {
-      case 'jajan':                  return const Color(0xFF2DD4BF);
-      case 'makan':                  return const Color(0xFFF472B6);
-      case 'savings':                return const Color(0xFF4ADE80);
-      case 'investment':             return const Color(0xFF60A5FA);
-      case 'health':                 return const Color(0xFFFB7185);
-      case 'mandatory share income': return const Color(0xFFA78BFA);
-      case 'tarik tunai':            return const Color(0xFF94A3B8);
-      case 'others':                 return const Color(0xFFFBBF24);
-      default:                       return const Color(0xFF6C63FF);
-    }
-  }
+  /// Looks up the color for an expense category from the user's stored list.
+  /// Falls back to accent purple for unknown / not-yet-loaded categories.
+  static Color category(String name) => CategoryRegistry().colorOf(name);
+}
+
+// ── Category lists ────────────────────────────────────────────────────────────
+
+abstract final class AppCategories {
+  // Expense categories are now user-defined; use CategoryRegistry().names.
+  // Income categories remain static.
+  static const List<String> income = <String>[
+    'salary', 'freelance', 'business', 'investment return',
+    'bonus', 'gift', 'others',
+  ];
 }
 
 // ── Theme ─────────────────────────────────────────────────────────────────────

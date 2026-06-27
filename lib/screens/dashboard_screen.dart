@@ -9,6 +9,7 @@ import '../models/income_record.dart';
 import '../models/financial_score.dart';
 import '../models/recurring_expense.dart';
 import '../helpers/db_helper.dart';
+import '../services/reload_notifier.dart';
 import '../theme/app_theme.dart';
 import 'package:logger/logger.dart';
 
@@ -75,7 +76,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    ReloadNotifier.instance.addListener(_fetch);
     _fetch();
+  }
+
+  @override
+  void dispose() {
+    ReloadNotifier.instance.removeListener(_fetch);
+    super.dispose();
   }
 
   // ── Data loading ──────────────────────────────────────────────────────────

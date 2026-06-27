@@ -5,12 +5,13 @@ import '../helpers/db_helper.dart';
 import '../models/expense.dart';
 import '../models/financial_score.dart';
 import '../models/income_record.dart';
+import '../services/reload_notifier.dart';
 import '../theme/app_theme.dart';
+import 'add_expense_screen.dart';
 import 'dashboard_screen.dart';
 import 'expense_list_screen.dart';
-import 'history_screen.dart';
+import 'finance_screen.dart';
 import 'profile_screen.dart';
-import 'add_expense_screen.dart';
 import 'monthly_report_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -27,7 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
     HomeScreenContent(),
     ExpenseListScreen(),
     DashboardScreen(),
-    HistoryScreen(),
+    FinanceScreen(),
     ProfileScreen(),
   ];
 
@@ -56,7 +57,7 @@ class _HomeScreenState extends State<HomeScreen> {
             NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
             NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long_rounded), label: 'Records'),
             NavigationDestination(icon: Icon(Icons.bar_chart_outlined), selectedIcon: Icon(Icons.bar_chart_rounded), label: 'Analytics'),
-            NavigationDestination(icon: Icon(Icons.history_outlined), selectedIcon: Icon(Icons.history_rounded), label: 'History'),
+            NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), selectedIcon: Icon(Icons.account_balance_wallet_rounded), label: 'Finance'),
             NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: 'Profile'),
           ],
         ),
@@ -92,7 +93,14 @@ class _HomeScreenContentState extends State<HomeScreenContent> {
   @override
   void initState() {
     super.initState();
+    ReloadNotifier.instance.addListener(_loadData);
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    ReloadNotifier.instance.removeListener(_loadData);
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -741,9 +749,17 @@ class _HomeScreenContentState extends State<HomeScreenContent> {
             final bool isLast = idx == _todayExpenses.length - 1 && _todayCats.length <= 1;
             return Column(
               children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Row(
+                InkWell(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => AddExpenseScreen(expense: e)),
+                  ),
+                  borderRadius: isLast
+                      ? const BorderRadius.vertical(bottom: Radius.circular(16))
+                      : BorderRadius.zero,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: Row(
                     children: <Widget>[
                       Container(
                         width: 40, height: 40,
@@ -765,6 +781,7 @@ class _HomeScreenContentState extends State<HomeScreenContent> {
                       Text(_fmt.format(e.amount),
                           style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w700)),
                     ],
+                  ),
                   ),
                 ),
                 if (!isLast) const Divider(height: 1, indent: 68, endIndent: 16),

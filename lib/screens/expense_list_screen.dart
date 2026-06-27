@@ -5,6 +5,8 @@ import 'add_income_screen.dart';
 import '../models/expense.dart';
 import '../models/income_record.dart';
 import '../helpers/db_helper.dart';
+import '../services/category_registry.dart';
+import '../services/reload_notifier.dart';
 import '../theme/app_theme.dart';
 
 class ExpenseListScreen extends StatefulWidget {
@@ -39,14 +41,8 @@ class _ExpenseListScreenState extends State<ExpenseListScreen>
   final NumberFormat _fmt =
       NumberFormat.currency(locale: 'id_ID', symbol: 'Rp', decimalDigits: 0);
 
-  static const List<String> _expCategories = <String>[
-    'jajan', 'makan', 'savings', 'investment', 'health',
-    'mandatory share income', 'tarik tunai', 'others',
-  ];
-  static const List<String> _incCategories = <String>[
-    'salary', 'freelance', 'business', 'investment return',
-    'bonus', 'gift', 'others',
-  ];
+  static List<String> get _expCategories => CategoryRegistry().names;
+  static List<String> get _incCategories => IncomeRecord.categories;
 
   // ── Computed helpers ───────────────────────────────────────────────────────
   bool get _anyFilter =>
@@ -77,11 +73,13 @@ class _ExpenseListScreenState extends State<ExpenseListScreen>
   void initState() {
     super.initState();
     _tabCtrl = TabController(length: 2, vsync: this);
+    ReloadNotifier.instance.addListener(_load);
     _load();
   }
 
   @override
   void dispose() {
+    ReloadNotifier.instance.removeListener(_load);
     _tabCtrl.dispose();
     super.dispose();
   }
@@ -345,13 +343,11 @@ class _ExpenseListScreenState extends State<ExpenseListScreen>
 
   Future<void> _deleteExpense(Expense e) async {
     if (e.id == null) return;
-    // softDeleteExpense wraps both writes in a single transaction — if either
-    // step fails the DB is left unchanged (no phantom duplicates).
     await DBHelper().softDeleteExpense(e);
+    ReloadNotifier.instance.notify();
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Deleted and moved to history')),
     );
-    _load();
   }
 
   Future<void> _editExpense(Expense e) async {
@@ -380,10 +376,10 @@ class _ExpenseListScreenState extends State<ExpenseListScreen>
   Future<void> _deleteIncome(IncomeRecord r) async {
     if (r.id == null) return;
     await DBHelper().deleteIncome(r.id!);
+    ReloadNotifier.instance.notify();
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Income record deleted')),
     );
-    _load();
   }
 
   Future<void> _editIncome(IncomeRecord r) async {

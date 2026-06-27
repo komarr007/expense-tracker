@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../helpers/db_helper.dart';
 import '../models/income_record.dart';
+import '../services/reload_notifier.dart';
 import '../theme/app_theme.dart';
 
 class AddIncomeScreen extends StatefulWidget {
@@ -95,6 +96,7 @@ class _AddIncomeScreenState extends State<AddIncomeScreen> {
     } else {
       await DBHelper().updateIncome(record.copyWith(id: widget.income!.id));
     }
+    ReloadNotifier.instance.notify();
     if (mounted) Navigator.pop(context);
   }
 

@@ -1,9 +1,14 @@
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
+import '../models/debt.dart';
+import '../models/envelope.dart';
 import '../models/expense.dart';
 import '../models/history_record.dart';
 import '../models/income_record.dart';
+import '../models/net_worth_item.dart';
 import '../models/recurring_expense.dart';
+import '../models/expense_category.dart';
+import '../models/savings_goal.dart';
 import 'package:logger/logger.dart';
 
 class DBHelper {
@@ -27,7 +32,7 @@ class DBHelper {
     final String path = join(await getDatabasesPath(), 'expense.db');
     return openDatabase(
       path,
-      version: 4,
+      version: 7,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -89,6 +94,104 @@ class DBHelper {
         created_at  TEXT NOT NULL
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE net_worth_items (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL,
+        value       REAL NOT NULL,
+        type        TEXT NOT NULL,
+        is_asset    INTEGER NOT NULL,
+        created_at  TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE envelopes (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        name            TEXT NOT NULL,
+        category        TEXT NOT NULL,
+        monthly_budget  REAL NOT NULL,
+        created_at      TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE debts (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        name             TEXT NOT NULL,
+        original_amount  REAL NOT NULL,
+        current_balance  REAL NOT NULL,
+        interest_rate    REAL NOT NULL DEFAULT 0,
+        minimum_payment  REAL,
+        due_day          INTEGER,
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE savings_goals (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        name           TEXT NOT NULL,
+        target_amount  REAL NOT NULL,
+        current_amount REAL NOT NULL DEFAULT 0,
+        deadline       TEXT,
+        color_hex      TEXT NOT NULL DEFAULT 'FF6C63FF',
+        created_at     TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE expense_categories (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT NOT NULL UNIQUE,
+        color_hex  TEXT NOT NULL,
+        nature     TEXT NOT NULL DEFAULT 'wants',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_default INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+    await _seedCategories(db, _freshSeeds);
+  }
+
+  // Seed rows for a brand-new install (universal, language-neutral labels).
+  static const List<Map<String, dynamic>> _freshSeeds = <Map<String, dynamic>>[
+    <String, dynamic>{'name': 'food',          'color_hex': 'FFF472B6', 'nature': 'needs',   'sort_order': 0,  'is_default': 0},
+    <String, dynamic>{'name': 'transport',     'color_hex': 'FF60A5FA', 'nature': 'needs',   'sort_order': 1,  'is_default': 0},
+    <String, dynamic>{'name': 'health',        'color_hex': 'FFFB7185', 'nature': 'needs',   'sort_order': 2,  'is_default': 0},
+    <String, dynamic>{'name': 'bills',         'color_hex': 'FFA78BFA', 'nature': 'needs',   'sort_order': 3,  'is_default': 0},
+    <String, dynamic>{'name': 'shopping',      'color_hex': 'FF2DD4BF', 'nature': 'wants',   'sort_order': 4,  'is_default': 0},
+    <String, dynamic>{'name': 'entertainment', 'color_hex': 'FFFBBF24', 'nature': 'wants',   'sort_order': 5,  'is_default': 0},
+    <String, dynamic>{'name': 'savings',       'color_hex': 'FF4ADE80', 'nature': 'savings', 'sort_order': 6,  'is_default': 0},
+    <String, dynamic>{'name': 'investment',    'color_hex': 'FF818CF8', 'nature': 'savings', 'sort_order': 7,  'is_default': 0},
+    <String, dynamic>{'name': 'education',     'color_hex': 'FFF59E0B', 'nature': 'needs',   'sort_order': 8,  'is_default': 0},
+    <String, dynamic>{'name': 'others',        'color_hex': 'FF94A3B8', 'nature': 'wants',   'sort_order': 99, 'is_default': 1},
+  ];
+
+  // Seed rows for users migrating from v6 — preserves old category strings
+  // that already exist in their expenses table.
+  static const List<Map<String, dynamic>> _migrationSeeds = <Map<String, dynamic>>[
+    <String, dynamic>{'name': 'jajan',                  'color_hex': 'FF2DD4BF', 'nature': 'wants',   'sort_order': 0,  'is_default': 0},
+    <String, dynamic>{'name': 'makan',                  'color_hex': 'FFF472B6', 'nature': 'needs',   'sort_order': 1,  'is_default': 0},
+    <String, dynamic>{'name': 'savings',                'color_hex': 'FF4ADE80', 'nature': 'savings', 'sort_order': 2,  'is_default': 0},
+    <String, dynamic>{'name': 'investment',             'color_hex': 'FF60A5FA', 'nature': 'savings', 'sort_order': 3,  'is_default': 0},
+    <String, dynamic>{'name': 'health',                 'color_hex': 'FFFB7185', 'nature': 'needs',   'sort_order': 4,  'is_default': 0},
+    <String, dynamic>{'name': 'mandatory share income', 'color_hex': 'FFA78BFA', 'nature': 'needs',   'sort_order': 5,  'is_default': 0},
+    <String, dynamic>{'name': 'tarik tunai',            'color_hex': 'FF94A3B8', 'nature': 'needs',   'sort_order': 6,  'is_default': 0},
+    <String, dynamic>{'name': 'others',                 'color_hex': 'FFFBBF24', 'nature': 'wants',   'sort_order': 99, 'is_default': 1},
+  ];
+
+  Future<void> _seedCategories(
+      Database db, List<Map<String, dynamic>> seeds) async {
+    for (final Map<String, dynamic> row in seeds) {
+      await db.insert(
+        'expense_categories',
+        row,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
   }
 
   // ── Migrations ───────────────────────────────────────────────────────────────
@@ -146,6 +249,69 @@ class DBHelper {
           created_at  TEXT NOT NULL
         )
       ''');
+    }
+    if (oldVersion < 5) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS net_worth_items (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          name        TEXT NOT NULL,
+          value       REAL NOT NULL,
+          type        TEXT NOT NULL,
+          is_asset    INTEGER NOT NULL,
+          created_at  TEXT NOT NULL,
+          updated_at  TEXT NOT NULL
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS envelopes (
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          name            TEXT NOT NULL,
+          category        TEXT NOT NULL,
+          monthly_budget  REAL NOT NULL,
+          created_at      TEXT NOT NULL
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS debts (
+          id               INTEGER PRIMARY KEY AUTOINCREMENT,
+          name             TEXT NOT NULL,
+          original_amount  REAL NOT NULL,
+          current_balance  REAL NOT NULL,
+          interest_rate    REAL NOT NULL DEFAULT 0,
+          minimum_payment  REAL,
+          due_day          INTEGER,
+          created_at       TEXT NOT NULL,
+          updated_at       TEXT NOT NULL
+        )
+      ''');
+    }
+    if (oldVersion < 6) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS savings_goals (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          name           TEXT NOT NULL,
+          target_amount  REAL NOT NULL,
+          current_amount REAL NOT NULL DEFAULT 0,
+          deadline       TEXT,
+          color_hex      TEXT NOT NULL DEFAULT 'FF6C63FF',
+          created_at     TEXT NOT NULL
+        )
+      ''');
+    }
+    if (oldVersion < 7) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS expense_categories (
+          id         INTEGER PRIMARY KEY AUTOINCREMENT,
+          name       TEXT NOT NULL UNIQUE,
+          color_hex  TEXT NOT NULL,
+          nature     TEXT NOT NULL DEFAULT 'wants',
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          is_default INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
+      // Seed with the old hardcoded categories so existing expense records
+      // still resolve to correct colors and 50/30/20 buckets.
+      await _seedCategories(db, _migrationSeeds);
     }
   }
 
@@ -352,37 +518,175 @@ class DBHelper {
     }
   }
 
-  // ── ETL import ───────────────────────────────────────────────────────────────
+  // ── Finance queries ──────────────────────────────────────────────────────────
 
-  Future<void> importExistingData(String etlDbPath) async {
-    final Database etlDb = await openDatabase(etlDbPath);
-    final List<Map<String, dynamic>> tables = await etlDb.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'expenses%';",
+  Future<double> getMonthlyIncomeTotal(int year, int month) async {
+    final db   = await database;
+    final String ym = '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}';
+    final List<Map<String, dynamic>> result = await db.rawQuery(
+      "SELECT COALESCE(SUM(amount), 0) AS total FROM income_records WHERE strftime('%Y-%m', income_date) = ?",
+      <Object>[ym],
     );
-    if (tables.isEmpty) { await etlDb.close(); return; }
+    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
+  }
 
-    final Database appDb = await database;
-    for (final table in tables) {
-      final tableName = table['name'];
-      final List<Map<String, dynamic>> rows = await etlDb.query(tableName);
-      for (final record in rows) {
-        try {
-          await appDb.insert('expenses', <String, dynamic>{
-            'id':         record['id'],
-            'name':       record['name'],
-            'amount':     record['amount']?.toDouble(),
-            'spend_date': record['spend_date'],
-            'created_at': record['created_at'],
-            'updated_at': record['updated_at'],
-            'user_id':    record['user_id'],
-            'category':   record['category'] ?? 'others',
-            'notes':      null,
-          }, conflictAlgorithm: ConflictAlgorithm.replace);
-        } catch (e, st) {
-          logger.e('ETL import row error', error: e, stackTrace: st);
-        }
-      }
+  // Returns total amount per expense category for the given month.
+  Future<Map<String, double>> getExpenseCategoryTotals(int year, int month) async {
+    final db = await database;
+    final String ym = '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}';
+    final List<Map<String, dynamic>> rows = await db.rawQuery(
+      "SELECT category, COALESCE(SUM(amount), 0) AS total FROM expenses WHERE strftime('%Y-%m', spend_date) = ? GROUP BY category",
+      <Object>[ym],
+    );
+    return <String, double>{
+      for (final r in rows) r['category'] as String: (r['total'] as num).toDouble(),
+    };
+  }
+
+  // ── Net worth ────────────────────────────────────────────────────────────────
+
+  Future<int> insertNetWorthItem(NetWorthItem item) async {
+    final db = await database;
+    return db.insert('net_worth_items', item.toMap());
+  }
+
+  Future<int> updateNetWorthItem(NetWorthItem item) async {
+    final db = await database;
+    return db.update(
+      'net_worth_items', item.toMap(),
+      where: 'id = ?', whereArgs: <Object?>[item.id],
+    );
+  }
+
+  Future<int> deleteNetWorthItem(int id) async {
+    final db = await database;
+    return db.delete('net_worth_items', where: 'id = ?', whereArgs: <Object?>[id]);
+  }
+
+  Future<List<NetWorthItem>> getNetWorthItems() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps =
+        await db.query('net_worth_items', orderBy: 'is_asset DESC, created_at ASC');
+    return maps.map(NetWorthItem.fromMap).toList();
+  }
+
+  // ── Envelopes ────────────────────────────────────────────────────────────────
+
+  Future<int> insertEnvelope(Envelope envelope) async {
+    final db = await database;
+    return db.insert('envelopes', envelope.toMap());
+  }
+
+  Future<int> updateEnvelope(Envelope envelope) async {
+    final db = await database;
+    return db.update(
+      'envelopes', envelope.toMap(),
+      where: 'id = ?', whereArgs: <Object?>[envelope.id],
+    );
+  }
+
+  Future<int> deleteEnvelope(int id) async {
+    final db = await database;
+    return db.delete('envelopes', where: 'id = ?', whereArgs: <Object?>[id]);
+  }
+
+  Future<List<Envelope>> getEnvelopes() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps =
+        await db.query('envelopes', orderBy: 'created_at ASC');
+    return maps.map(Envelope.fromMap).toList();
+  }
+
+  // ── Debts ────────────────────────────────────────────────────────────────────
+
+  Future<int> insertDebt(Debt debt) async {
+    final db = await database;
+    return db.insert('debts', debt.toMap());
+  }
+
+  Future<int> updateDebt(Debt debt) async {
+    final db = await database;
+    return db.update(
+      'debts', debt.toMap(),
+      where: 'id = ?', whereArgs: <Object?>[debt.id],
+    );
+  }
+
+  Future<int> deleteDebt(int id) async {
+    final db = await database;
+    return db.delete('debts', where: 'id = ?', whereArgs: <Object?>[id]);
+  }
+
+  Future<List<Debt>> getDebts() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps =
+        await db.query('debts', orderBy: 'created_at ASC');
+    return maps.map(Debt.fromMap).toList();
+  }
+
+  // ── Savings Goals ─────────────────────────────────────────────────────────────
+
+  Future<int> insertGoal(SavingsGoal goal) async {
+    final db = await database;
+    return db.insert('savings_goals', goal.toMap());
+  }
+
+  Future<int> updateGoal(SavingsGoal goal) async {
+    final db = await database;
+    return db.update(
+      'savings_goals', goal.toMap(),
+      where: 'id = ?', whereArgs: <Object?>[goal.id],
+    );
+  }
+
+  Future<int> deleteGoal(int id) async {
+    final db = await database;
+    return db.delete('savings_goals', where: 'id = ?', whereArgs: <Object?>[id]);
+  }
+
+  Future<List<SavingsGoal>> getGoals() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps =
+        await db.query('savings_goals', orderBy: 'created_at ASC');
+    return maps.map(SavingsGoal.fromMap).toList();
+  }
+
+  // ── Expense categories ───────────────────────────────────────────────────────
+
+  Future<List<ExpenseCategory>> getCategories() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps =
+        await db.query('expense_categories', orderBy: 'sort_order ASC, name ASC');
+    return maps.map(ExpenseCategory.fromMap).toList();
+  }
+
+  Future<int> insertCategory(ExpenseCategory cat) async {
+    final db = await database;
+    return db.insert('expense_categories', cat.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<int> updateCategory(ExpenseCategory cat) async {
+    final db = await database;
+    return db.update(
+      'expense_categories', cat.toMap(),
+      where: 'id = ?', whereArgs: <Object?>[cat.id],
+    );
+  }
+
+  Future<int> deleteCategory(int id) async {
+    final db = await database;
+    return db.delete(
+      'expense_categories', where: 'id = ? AND is_default = 0', whereArgs: <Object?>[id],
+    );
+  }
+
+  // Closes and nulls the database connection so the next access reopens it fresh.
+  // Call this before replacing the database file on disk (e.g. restore from backup).
+  Future<void> resetDatabase() async {
+    if (_database != null) {
+      await _database!.close();
+      _database = null;
     }
-    await etlDb.close();
   }
 }
