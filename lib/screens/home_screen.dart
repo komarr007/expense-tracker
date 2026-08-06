@@ -13,6 +13,7 @@ import 'expense_list_screen.dart';
 import 'finance_screen.dart';
 import 'profile_screen.dart';
 import 'monthly_report_screen.dart';
+import 'life_countdown_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -30,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
     DashboardScreen(),
     FinanceScreen(),
     ProfileScreen(),
+    LifeCountdownScreen(),
   ];
 
   @override
@@ -59,6 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
             NavigationDestination(icon: Icon(Icons.bar_chart_outlined), selectedIcon: Icon(Icons.bar_chart_rounded), label: 'Analytics'),
             NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), selectedIcon: Icon(Icons.account_balance_wallet_rounded), label: 'Finance'),
             NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: 'Profile'),
+            NavigationDestination(icon: Icon(Icons.calendar_today_outlined), selectedIcon: Icon(Icons.calendar_today_rounded), label: 'Life Countdown'),
           ],
         ),
       ),
